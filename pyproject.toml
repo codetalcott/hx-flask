@@ -1,0 +1,15 @@
+[project]
+name = "hx-flask-contact-app"
+version = "0.0.0"
+description = "contact.app with the server owning every outcome: handler-first htmx 4 for Flask"
+requires-python = ">=3.10"
+dependencies = ["flask>=3.0"]
+
+[project.optional-dependencies]
+dev = ["pytest", "playwright"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q"
+markers = ["browser: needs Playwright and a Chromium build"]

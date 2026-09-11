@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="">
+<head>
+    <title>Contact App</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='site.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='missing.css') }}">
+    <script src="{{ url_for('static', filename='js/htmx-4.0.0.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/hx-live-4.0.0.js') }}"></script>
+</head>
+{# Under htmx 4 an attribute reaches descendants only with :inherited. #}
+<body hx-boost:inherited="true">
+<main>
+    <header>
+        <h1>
+            <all-caps>contacts.app</all-caps>
+            <sub-title>A Demo Contacts Application</sub-title>
+        </h1>
+    </header>
+    {# A block, so a fragment response can update it too (see HX(flash_template=...)). #}
+    {% block flash %}
+    <div id="flash">
+        {% for message in get_flashed_messages() %}
+        <div class="flash">{{ message }}</div>
+        {% endfor %}
+    </div>
+    {% endblock %}
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>
