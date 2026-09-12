@@ -130,6 +130,12 @@ def test_duplicate_ids_and_select_info():
     assert rules(f, "error") == ["duplicate-id"] and rules(f, "info") == ["select-not-body"]
 
 
+def test_oob_in_a_template_is_noted_not_failed():
+    f = lint_html('<div id="count" hx-swap-oob="true">3</div><div hx-select-oob="#flash"></div>')
+    assert rules(f) == ["oob-in-template"] and {x.severity for x in f} == {"info"} and len(f) == 2
+    assert ".partial()" in f[0].message
+
+
 def test_extension_attributes_need_their_script_when_the_page_is_known():
     page = '<html><script src="/static/js/htmx-4.0.0.js"></script><body><div hx-live="x"></div></body></html>'
     assert rules(lint_html(page)) == ["extension-not-loaded"]

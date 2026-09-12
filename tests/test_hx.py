@@ -7,12 +7,14 @@ is loud, or cannot be represented.
 import json
 
 import pytest
-from flask import flash, redirect, request, send_file
+from flask import abort, flash, make_response, redirect, render_template, request, send_file
 from flask.signals import template_rendered
 
 import hx as hxmod
 from hx import (
     HX,
+    HxBareResponse,
+    HxError,
     HxFlashUnconfigured,
     HxFragmentIntoPage,
     HxNoSwap,
@@ -57,6 +59,17 @@ def test_render_accepts_a_template_file_as_the_partial(make_app):
     assert app.test_client().get("/", headers=PARTIAL).data.count(b"<tr>") == 3
 
 
+def test_render_without_a_partial_names_the_fix(make_app):
+    app = make_app()
+
+    @app.get("/")
+    def index():
+        return hx.render("index.html", items=ITEMS)
+
+    with pytest.raises(HxError, match=r"index\(\) calls hx.render\('index.html'\) with no partial; name the block"):
+        app.test_client().get("/")
+
+
 def test_page_raises_when_the_request_targets_an_element(make_app):
     app = make_app()
 
@@ -79,7 +92,7 @@ def test_fragment_is_loud_when_htmx_asked_for_a_page(make_app):
 
     @app.get("/rows")
     def rows():
-        return hx.fragment("index.html", block="rows", items=ITEMS)
+        return hx.fragment("index.html", partial="rows", items=ITEMS)
 
     @app.get("/count")
     def count():
@@ -176,6 +189,37 @@ def test_removed_is_an_empty_200_and_204_is_loud(make_app):
         c.delete("/b", headers=PARTIAL)
 
 
+# --------------------------------------------------- responses built without a verb
+
+
+def test_bare_responses_to_a_partial_request_are_loud(make_app):
+    app = make_app()
+
+    @app.get("/tpl")
+    def tpl():
+        return render_template("index.html", items=ITEMS)  # the Flask idiom: a page into an element
+
+    @app.get("/empty")
+    def empty():
+        return ""  # blanks the target
+
+    @app.get("/made")
+    def made():
+        return make_response("<tr><td>x</td></tr>")
+
+    @app.get("/gone")
+    def gone():
+        abort(404)
+
+    c = app.test_client()
+    for url in ("/tpl", "/empty", "/made"):
+        with pytest.raises(HxBareResponse, match=r"\(\) answered a request that targets an element without an hx verb"):
+            c.get(url, headers=PARTIAL)
+        assert c.get(url).status_code == 200  # a browser
+        assert c.get(url, headers=FULL).status_code == 200  # a boosted link is answered by any code that renders a page
+    assert c.get("/gone", headers=PARTIAL).status_code == 404  # an error page is not the handler's shape
+
+
 # ------------------------------------------------------------ validation errors
 
 
@@ -262,7 +306,7 @@ def test_blocks_see_context_processors_and_fire_the_template_signal(make_app):
 
     @app.get("/")
     def index():
-        return hx.fragment("index.html", block="extra", items=ITEMS)
+        return hx.fragment("index.html", partial="extra", items=ITEMS)
 
     def receiver(sender, template, context, **kw):
         seen.append(template.name)
