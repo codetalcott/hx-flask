@@ -1,0 +1,139 @@
+# hx.py: handler-first htmx 4 for Flask
+
+One file, `hx.py`. The handler names the outcome with a verb; the template keeps
+every request-side control; fragments are Jinja blocks of the page template.
+Requires htmx 4 (the `HX-Request-Type` header). This file is the reference for
+writing code against it; README.md has the reasoning.
+
+## Setup
+
+    from flask import Flask
+    from hx import HX, hx
+
+    app = Flask(__name__)
+    HX(app, flash_template="layout.html")   # Vary, the guards, the flash bridge, the lint
+
+`flash_template` is the template whose `flash` block renders pending messages;
+that block's root element must be `id="flash"`. Other options: `lint=True|False`
+(default: on under `app.testing` or `app.debug`), `lint_warnings="raise"`,
+`extensions=("hx-live",)`, `provenance=True` (HTML comments naming the handler).
+
+The layout loads htmx 4 and, because attributes reach descendants only with
+`:inherited` in htmx 4, boosts like this:
+
+    <body hx-boost:inherited="true">
+
+## The three rules
+
+1. The handler owns every response-side decision: which representation, the
+   status, what changed elsewhere, what to announce. It says so through htmx 4's
+   protocol: `HX-Request-Type` in; `HX-Trigger`, `<hx-partial>`, 422 and a plain
+   303 out.
+2. The HTML keeps the request-side controls (`hx-get`, `hx-target`, `hx-trigger`,
+   `hx-swap`) and stays sufficient to predict the DOM effect. Nothing changes a
+   target or a swap from a header; nothing reads `HX-Source` or `HX-Target`.
+3. One template per resource. Fragments are Jinja blocks of the page template,
+   or a file the page includes, named in the handler.
+
+## Principles to check code against
+
+- Never `return redirect(...)`, `return ""`, `return "", 204`, or
+  `render_template(...)` to an htmx request. Say what happened with a verb.
+- Never read `HX-Source` or `HX-Target`. Ask `hx.wants_page`.
+- Announce facts; do not update regions. `.trigger("x")` with
+  `hx-trigger="x from:body"` on the element that cares; `.partial()` only when
+  the handler already holds the data. Do not put `hx-swap-oob` in templates.
+- The template predicts the DOM effect. `.retarget()` and `.reswap()` break
+  that; use them only with a comment saying why.
+- The template says whether a control navigates: `hx-push-url="true"` on the
+  control. `.push_url()` only for a canonical URL that differs from the request.
+- Every control says `url_for(...)`. Every name is literal: `partial="rows"` is
+  `{% block rows %}` in that template.
+
+## The vocabulary
+
+    hx.is_htmx / hx.wants_page / hx.wants_fragment   # from HX-Request-Type only
+
+    hx.render("index.html", partial="rows", **ctx)  # the page, or the block, by request type
+    hx.page("show.html", **ctx)                     # always the page; raises on a partial request
+    hx.fragment("archive_ui.html", **ctx)           # always a fragment: a file, or partial="block"
+    hx.invalid("new.html", partial="form", **ctx)   # render, status 422
+    hx.redirect(url)                                # a plain 303; raises on a partial request
+    hx.removed()                                    # 200, empty; the control's hx-swap="delete" acts
+    hx.text("(3 total)")                            # an escaped text fragment
+
+    response.trigger("contacts-changed")            # HX-Trigger, JSON, always with a target (body)
+    response.partial("count")                       # appends <hx-partial hx-target="#count"> from that block
+    response.push_url(url) / .replace_url(url) / .with_status(code)
+    response.retarget(selector) / .reswap(spec)     # escape hatches; flask hx map reports them
+
+A `partial=` containing a dot (`rows.html`) is a separate template file;
+anything else is a `{% block %}` of the page template. A block used as an
+`<hx-partial>` (`.partial("count")`, the flash block) must have a root element
+whose `id` is the block name; the render checks it.
+
+Four words: a **page** is the full document; a **fragment** is what a control
+that targets an element gets; **partial** is htmx 4's word (`HX-Request-Type:
+partial`, `<hx-partial>`, `partial=`, `.partial()`); a **block** is Jinja's word
+for the region `partial=` names.
+
+## A handler
+
+    @app.route("/contacts")
+    def contacts():
+        return hx.render("index.html", partial="rows", contacts=Contact.all(), page=1)
+
+    @app.route("/contacts/<int:contact_id>", methods=["DELETE"])
+    def contacts_delete(contact_id):
+        Contact.find(contact_id).delete()
+        flash("Deleted Contact!")
+        if hx.wants_page:          # the edit page's button targets the body
+            return hx.redirect(url_for("contacts"))
+        return hx.removed()        # a row's link says hx-swap="delete"
+
+    <tbody>
+    {% block rows %}{% for contact in contacts %}<tr>...</tr>{% endfor %}{% endblock %}
+    </tbody>
+
+## Errors
+
+Every error names the handler and says what to change. These raise always:
+`HxPageIntoFragment` (`hx.page` to a partial request), `HxRedirectIntoFragment`
+(`hx.redirect` to a partial request), `HxUnknownBlock`, `HxPartialRootId`,
+`HxProtocolError` (htmx without `HX-Request-Type`), `HxNotInitialized`, and
+`HxError` for `hx.render` with no `partial=`. These raise under `app.testing`
+and log otherwise: `HxFragmentIntoPage`, `HxRedirectIntoFragment` from the
+after-request guard (a plain 3xx or Werkzeug's slash 308), `HxNoSwap` (a 204),
+`HxBareResponse` (a response built without a verb), `HxFlashUnconfigured`,
+`HxLintError`.
+
+## Testing
+
+    PARTIAL = {"HX-Request": "true", "HX-Request-Type": "partial"}   # a control targeting an element
+    FULL = {"HX-Request": "true", "HX-Request-Type": "full"}         # a boosted link or hx-target="body"
+    client.get("/contacts?q=a", headers=PARTIAL)
+    hx.test_headers(partial=True)                                    # the same dict
+
+Under `app.testing` every HTML response is linted and every guard raises.
+
+## Tools
+
+    flask --app app hx lint templates   # htmx 4 vocabulary over template source; exit 1 on errors
+    flask --app app hx map              # every control -> its handler, full or partial, checked
+
+The map errors on a partial control reaching a page-only handler, a full control
+reaching a fragment-only one, and a URL that resolves to nothing. It warns on a
+control reaching a handler that calls no hx verb, a handler that calls
+`.retarget()` or `.reswap()`, a DELETE that reads form values without
+`hx-include="closest form"`, and an event announced or listened for on only one
+side.
+
+## htmx 4 facts this depends on
+
+- `HX-Request-Type` is `full` when the target is the body or `hx-select` is set, else `partial`.
+- `hx-push-url="true"` pushes the URL after redirects, so a plain 303 updates the location bar.
+- A `delete` swap runs regardless of response content, and honors `swap:1s`.
+- `HX-Trigger` fires on the source element, or `document` if the swap removed it; so `.trigger()` always sets a target.
+- Attributes reach descendants only with `:inherited`; `<body hx-boost="true">` boosts nothing.
+- `hx-delete` sends query parameters and excludes the enclosing form unless asked with `hx-include`.
+- Only 204 and 304 skip the swap. A 422 body swaps with no client configuration.
