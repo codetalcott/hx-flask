@@ -72,7 +72,7 @@ def test_map_reports_the_mismatches_a_dsl_could_not(make_app):
 
     @app.get("/rows")
     def rows():
-        return hx.fragment("page.html", block="content").trigger("nobody-listens")
+        return hx.fragment("page.html", partial="content").trigger("nobody-listens")
 
     @app.delete("/items")
     def items():
@@ -106,3 +106,54 @@ def test_map_treats_script_dispatched_events_as_announced(make_app):
 
     m = build_map(app)
     assert m.warnings == [] and m.errors == []
+
+
+def test_map_warns_on_handlers_it_cannot_check_and_on_the_escape_hatches(make_app):
+    from flask import render_template
+
+    from hx import hx
+
+    templates = {
+        "layout.html": "<html><body>{% block content %}{% endblock %}</body></html>",
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <button hx-get="{{ url_for('plain') }}" hx-target="#panel">plain</button>
+            <button hx-get="{{ url_for('moved') }}" hx-target="#panel">moved</button>
+            <div id="panel"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.get("/plain")
+    def plain():
+        return render_template("page.html")  # no verb: nothing can check its shape
+
+    @app.get("/moved")
+    def moved():
+        return hx.fragment("page.html", partial="content").retarget("#elsewhere")  # the template no longer predicts this
+
+    m = build_map(app)
+    warnings = "\n".join(m.warnings)
+    assert m.errors == []
+    assert "<button> reaches plain() which calls no hx verb" in warnings
+    assert "call hx.render/page/fragment/text/removed" in warnings
+    assert "moved() calls .retarget(); page.html:" in warnings and "<button> can no longer predict its DOM effect" in warnings
+    assert m.handlers["moved"].escapes == {"retarget"}
+    out = io.StringIO()
+    print_map(app, out=out)
+    assert "  escapes: retarget" in out.getvalue()
+
+
+def test_map_sees_verbs_through_an_alias_of_hx(make_app):
+    from hx import hx as h
+
+    templates = {
+        "layout.html": "<html><body>{% block content %}{% endblock %}</body></html>",
+        "page.html": '{% extends "layout.html" %}{% block content %}<button hx-get="{{ url_for(\'rows\') }}" hx-target="#panel">x</button><div id="panel"></div>{% endblock %}',
+    }
+    app = make_app(templates)
+
+    @app.get("/rows")
+    def rows():
+        return h.render("page.html", partial="content")
+
+    m = build_map(app)
+    assert m.handlers["rows"].verbs == {"render"} and m.warnings == [] and m.errors == []

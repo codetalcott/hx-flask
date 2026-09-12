@@ -253,9 +253,11 @@ class _Linter:
                 if not base.startswith("hx-"):
                     continue
                 self.attribute_name(node, base)
+                stem = re.sub(r"(:inherited|:append)+$", "", base)
+                if stem in ("hx-swap-oob", "hx-select-oob"):
+                    self.add("info", "oob-in-template", node, f"{stem} decides what changed elsewhere from the template; here the handler says it with .partial() or .trigger(). Keep it only for a swap style .partial() cannot express (it always swaps outerHTML by id).")
                 if value is None or JINJA in value:
                     continue
-                stem = re.sub(r"(:inherited|:append)+$", "", base)
                 if stem == "hx-swap":
                     self.swap_value(node, value)
                 elif stem == "hx-swap-oob" and value not in ("true", "false"):

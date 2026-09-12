@@ -60,6 +60,7 @@ __all__ = [
     "HxFragmentIntoPage",
     "HxRedirectIntoFragment",
     "HxNoSwap",
+    "HxBareResponse",
     "HxUnknownBlock",
     "HxPartialRootId",
     "HxFlashUnconfigured",
@@ -100,6 +101,10 @@ class HxRedirectIntoFragment(HxError):
 
 class HxNoSwap(HxError):
     """A 204 answered a partial request; htmx 4 leaves the target untouched."""
+
+
+class HxBareResponse(HxError):
+    """A response built without an hx verb answered a request that targets an element."""
 
 
 class HxUnknownBlock(HxError):
@@ -298,9 +303,14 @@ class _Hx:
 
     # response side -----------------------------------------------------
 
-    def render(self, template: str, partial: str, **context: Any) -> HxResponse:
+    def render(self, template: str, partial: str | None = None, **context: Any) -> HxResponse:
         """The page for ``wants_page``, otherwise ``partial``: a block of ``template`` or a file."""
         _state()
+        if partial is None:
+            raise HxError(
+                f"{request.endpoint}() calls hx.render({template!r}) with no partial; name the block a partial "
+                "request gets, or call hx.page for a page-only handler."
+            )
         if self.wants_page:
             return self._page(template, context)
         return self._fragment(template, partial, context)
@@ -315,11 +325,11 @@ class _Hx:
             )
         return self._page(template, context)
 
-    def fragment(self, template: str, block: str | None = None, **context: Any) -> HxResponse:
-        """Always a fragment: the file, or ``block`` of it. Loud if htmx asked for a page."""
+    def fragment(self, template: str, partial: str | None = None, **context: Any) -> HxResponse:
+        """Always a fragment: the file, or the block ``partial`` of it. Loud if htmx asked for a page."""
         _state()
-        self._guard_fragment(f"fragment {template}" + (f"#{block}" if block else ""))
-        return self._fragment(template, block or template, context)
+        self._guard_fragment(f"fragment {template}" + (f"#{partial}" if partial else ""))
+        return self._fragment(template, partial or template, context)
 
     def invalid(self, template: str, partial: str, **context: Any) -> HxResponse:
         """``render`` with status 422. htmx 4 swaps it; a browser shows it."""
@@ -380,7 +390,8 @@ hx = _Hx()
 
 class HX:
     """
-    Register the after-request work: ``Vary``, the redirect guard, the flash
+    Register the after-request work: ``Vary``, the guards (a 3xx, a 204 or a
+    response built without an hx verb answering a partial request), the flash
     bridge and the lint. ``flash_template`` is the template whose ``flash``
     block renders pending messages; its root element must be ``id="flash"``.
     """
@@ -452,6 +463,13 @@ class HX:
         elif partial and status == 204:
             _loud(HxNoSwap, "answered a request that targets an element with a 204; htmx 4 does not swap it. Use hx.removed() with hx-swap=\"delete\", or return a fragment.")
         elif partial and status < 300 and html:
+            if not isinstance(response, HxResponse):
+                _loud(
+                    HxBareResponse,
+                    "answered a request that targets an element without an hx verb (render_template, a string, "
+                    "make_response); whether it is a page or a fragment cannot be checked. "
+                    "Use hx.render(..., partial=...), hx.fragment, hx.text or hx.removed.",
+                )
             self._bridge_flash(response)
 
         if html and self.lint_enabled:
