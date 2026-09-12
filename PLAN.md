@@ -8,33 +8,40 @@ move together, the item says so.
 
 ## Status, 2026-09-12
 
-Implemented in this checkout, uncommitted, with every recommendation in the
-decisions table applied:
+Every item is done. Two rounds:
 
-- 1.1 `HxBareResponse`, partial requests only. 1.2 the two map warnings. 1.3
-  `oob-in-template` at info. 1.4 the `hx.render` error naming `hx.page`.
-- 2.1 to 2.4 in README.md. 2.5 `llms.txt`.
-- 3.1 `hx.fragment(template, partial=...)`. 3.2 `HxUnknownBlock` kept; dj-hx's
-  CLAUDE.md now names the two exceptions that differ. 3.3 not done (optional).
-- 4 `mapcore.py` canonical here, `hxmap.py` the Flask adapter. dj-hx's
-  `tools/sync_shared.py` and `tests/test_shared_core.py` extended to the third
-  file, the sync run, `dj_hx/mapcore.py` added to its ruff exclude; its suite
-  passes (110) and its example maps clean.
-- 5 `CHANGELOG.md`, `.github/workflows/ci.yml`, CLAUDE.md. The editable-install
-  line was dropped: setuptools refuses the flat layout ("multiple top-level
-  modules"), so the README keeps the direct install and CI installs the three
-  packages by name.
+**Landed** (hx-flask #1, dj-hx #1). 1.1 `HxBareResponse` in Flask, partial
+requests only. 1.2 the two map warnings. 1.3 `oob-in-template` at info. 1.4 the
+`hx.render` error naming `hx.page`. 2.1 to 2.4 in README.md, 2.5 `llms.txt`.
+3.1 `hx.fragment(partial=)`. 3.2 `HxUnknownBlock` kept, dj-hx's CLAUDE.md now
+names the two exceptions that differ. 4 `mapcore.py` canonical here, `hxmap.py`
+the adapter, dj-hx's sync script and pin extended to it. 5 `CHANGELOG.md`, CI,
+CLAUDE.md.
 
-Verified: 79 tests here including the browser suite, `flask hx lint` 0 errors,
-`flask hx map` 0 errors 0 warnings, the vendoring pin green from both sides.
+**In review.** 3.3 `flask hx map --by-template` and `manage.py hx_map
+--by-template`, in `mapcore.format_by_template` so both CLIs share it. The
+1.1 port into dj-hx's `guard.py` as a recorded finding, with the README row,
+the `llms.txt` row and three tests; `is_html` moved from its middleware to its
+guard. dj-hx's changelog now covers the vendored map core and the two warnings.
 
-Still open:
+The editable-install line from item 5 was dropped: setuptools refuses this flat
+layout ("multiple top-level modules"), so the README keeps the direct install
+and CI installs the three packages by name.
 
-- dj-hx: port `HxBareResponse` into `guard.py` as a recorded finding, with a
-  README row and a test (the last bullet of 1.1). Its `CHANGELOG.md` has no
-  entry yet for the vendored map core and the two new warnings.
-- 3.3, the by-template map view.
-- Neither repository is committed.
+Verified: 71 tests here plus 7 in Chromium, `flask hx lint` 0 errors, `flask hx
+map` 0 errors 0 warnings; dj-hx 113 tests, ruff clean, its example map clean;
+the vendoring pin green from both sides.
+
+Two things noticed while working here, neither in scope and neither fixed:
+
+- A 304 answering a partial request is recorded as `HxRedirectIntoFragment` by
+  both guards, because the branch is `300 <= status < 400`. htmx skips the swap
+  on a 304 by design, so the message ("fetch will follow it") is wrong. It needs
+  its own branch, or none.
+- `Handler.templates` records what a verb named, so `hx.render("index.html",
+  partial="rows")` indexes `index.html#rows` and never `index.html`. The
+  by-template view therefore says who renders the block but not who renders the
+  page around it.
 
 ## Ground rules for every item
 
