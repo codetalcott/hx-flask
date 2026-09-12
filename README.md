@@ -9,8 +9,9 @@ owning every outcome. Same routes, same templates, same model as the book's
 - `hxmap.py` maps every control in the templates to the handler that answers it.
 - `hx_vocab.py` is generated from the htmx 4.0.0 source tree by `tools/gen_vocab.py`.
 
-The design and the reasoning behind it are in the "Handler-first htmx for Flask"
-design document; the short version is below.
+The design and the reasoning behind it are below, in short. The same design
+for Django, with the principles stated in full, is
+[dj-hx](https://github.com/codetalcott/dj-hx).
 
 ## Run it
 
@@ -87,7 +88,7 @@ Under `app.testing` these raise; otherwise they log.
 
 ## htmx 4 facts this depends on
 
-All verified against `src/htmx.js` at tag v4.0.0, line numbers in the design document.
+All verified against `src/htmx.js` at tag v4.0.0.
 
 - `HX-Request-Type` is `full` when the target is the body or `hx-select` is set, else `partial`.
 - `hx-push-url="true"` pushes the URL after redirects, so a plain 303 updates the location bar.
