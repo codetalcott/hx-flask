@@ -15,6 +15,10 @@
 - `flask hx map` warns on a control that reaches a handler calling no hx verb,
   and on a handler that calls `.retarget()` or `.reswap()`, naming the controls
   whose templates no longer predict the DOM effect.
+- `flask hx map --by-template`: the map read from the other end, every template
+  and block a handler names with the handlers that render it. Editing a block is
+  where the page-and-fragment agreement is easiest to break, and the template
+  cannot say who renders it.
 - Lint rule `oob-in-template` (info): `hx-swap-oob` and `hx-select-oob` put the
   handler's decision in the template.
 - README: the principles stated for agents, a glossary of page, fragment,

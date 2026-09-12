@@ -42,6 +42,7 @@ __all__ = [
     "check",
     "print_map",
     "format_map",
+    "format_by_template",
     "PAGE_VERBS",
     "FRAGMENT_VERBS",
     "VERBS",
@@ -449,7 +450,32 @@ def format_map(m: Map, check_: bool = True) -> str:
     return "\n".join(lines) + "\n"
 
 
-def print_map(m: Map, check_: bool = True, out=None) -> int:
+def format_by_template(m: Map) -> str:
+    """
+    The same map read from the other end: every template and partial a handler
+    names, the handlers that render it, and the controls that reach them.
+
+    Editing a block is where the page-and-fragment agreement is easiest to
+    break, and the template itself cannot say who renders it.
+    """
+    by: dict[str, list[Handler]] = {}
+    for h in m.handlers.values():
+        for template in h.templates:
+            by.setdefault(template, []).append(h)
+    if not by:
+        return "hx map: no handler names a template\n"
+    lines = []
+    for template in sorted(by):
+        lines.append(template)
+        for h in sorted(by[template], key=lambda h: h.endpoint):
+            lines.append(f"  {h.label}  {'; '.join(h.rules)}")
+            for c in h.controls:
+                lines.append(f"    <- {c.file}:{c.line} <{c.element}> {c.method} {c.scope} ({c.why})")
+    lines.append(f"hx map: {len(by)} templates, {len(m.handlers)} handlers")
+    return "\n".join(lines) + "\n"
+
+
+def print_map(m: Map, check_: bool = True, out=None, by_template: bool = False) -> int:
     """Write the map; one write, so a framework's output wrapper adds no blank lines."""
-    (out or sys.stdout).write(format_map(m, check_))
+    (out or sys.stdout).write(format_by_template(m) if by_template else format_map(m, check_))
     return 1 if (check_ and m.errors) else 0
