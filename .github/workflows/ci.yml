@@ -24,3 +24,16 @@ jobs:
       - run: pytest -q
       - run: flask --app app hx lint templates
       - run: flask --app app hx map
+
+  ci:
+    # The one check branch protection requires. Editing the matrix above cannot
+    # silently drop a required check, or leave one pinned by name that never
+    # reports and blocks the pull request forever.
+    name: ci
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: always()
+    steps:
+      - run: |
+          echo "test: ${{ needs.test.result }}"
+          [ "${{ needs.test.result }}" = "success" ]
