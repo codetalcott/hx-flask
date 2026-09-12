@@ -30,6 +30,7 @@ uv pip install pytest playwright
 .venv/bin/python -m pytest                          # -m "not browser" to skip the real browser
 .venv/bin/flask --app app hx lint templates         # the static lint
 .venv/bin/flask --app app hx map                    # controls <-> handlers, checked
+.venv/bin/flask --app app hx map --by-template      # the same map, read from the templates
 ```
 
 ## The three rules

@@ -144,5 +144,5 @@ def build_map(app) -> Map:
     return mapcore.check(handlers, controls, listeners, script_names, verb_prefix="hx.")
 
 
-def print_map(app, check: bool = True, out=None) -> int:
-    return mapcore.print_map(build_map(app), check, out)
+def print_map(app, check: bool = True, out=None, by_template: bool = False) -> int:
+    return mapcore.print_map(build_map(app), check, out, by_template)

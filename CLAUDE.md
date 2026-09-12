@@ -102,8 +102,8 @@ Findings have severity error / warning / info; only errors fail the CLI. Design 
 `mapcore.py` is the framework-neutral engine, canonical here and vendored by dj-hx: the template scan
 (`scan_templates`), the AST visitor that finds verb calls (`scan_function`, with `verb_names` mapping
 any dotted alias to a verb and `if request.method == ...` branches scoping verbs to that method), the
-checks (`check`, with `verb_prefix` for how the framework spells a verb in a message) and the report
-(`format_map`). New map logic belongs there. `hxmap.py` is the Flask adapter: `url_for(...)` rewritten
+checks (`check`, with `verb_prefix` for how the framework spells a verb in a message) and the two reports
+(`format_map` by handler, `format_by_template` by template and block). New map logic belongs there. `hxmap.py` is the Flask adapter: `url_for(...)` rewritten
 to a `URLFOR:` marker, resolution through `app.url_map`, `inspect` plus `ast` per endpoint, and
 `verb_names` built from each handler module's imports of `hx`. `build_map(app)` and
 `print_map(app, check, out)` are the adapter's surface; `hx.py`'s CLI and the tests use only those.

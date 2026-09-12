@@ -529,9 +529,10 @@ def _cli_lint(paths):
 
 @_cli.command("map")
 @click.option("--check/--no-check", default=True, help="Also check controls against the verbs their handlers call.")
-def _cli_map(check):
+@click.option("--by-template", is_flag=True, help="Group by template and block: who renders each one.")
+def _cli_map(check, by_template):
     """Map every control in the templates to the handler that answers it."""
     import hxmap
 
-    code = hxmap.print_map(current_app, check=check)
+    code = hxmap.print_map(current_app, check=check, by_template=by_template)
     sys.exit(code)

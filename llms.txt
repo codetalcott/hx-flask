@@ -120,13 +120,16 @@ Under `app.testing` every HTML response is linted and every guard raises.
 
     flask --app app hx lint templates   # htmx 4 vocabulary over template source; exit 1 on errors
     flask --app app hx map              # every control -> its handler, full or partial, checked
+    flask --app app hx map --by-template   # the same map keyed by template#block: who renders it
 
 The map errors on a partial control reaching a page-only handler, a full control
 reaching a fragment-only one, and a URL that resolves to nothing. It warns on a
 control reaching a handler that calls no hx verb, a handler that calls
 `.retarget()` or `.reswap()`, a DELETE that reads form values without
 `hx-include="closest form"`, and an event announced or listened for on only one
-side.
+side. `--by-template` inverts it: every template and block a handler names, the
+handlers that render it, and the controls that reach them, for when you are
+editing a block and need to know who serves it.
 
 ## htmx 4 facts this depends on
 

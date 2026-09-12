@@ -157,3 +157,23 @@ def test_map_sees_verbs_through_an_alias_of_hx(make_app):
 
     m = build_map(app)
     assert m.handlers["rows"].verbs == {"render"} and m.warnings == [] and m.errors == []
+
+
+def test_by_template_says_who_renders_each_block(app):
+    out = io.StringIO()
+    assert print_map(app, out=out, by_template=True) == 0
+    text = out.getvalue()
+    # The block two handlers serve, which the template itself cannot say
+    rows = text.split("index.html#rows\n", 1)[1].split("\nnew.html", 1)[0]
+    assert "contacts()  GET /contacts" in rows
+    assert "contacts_delete_all()  DELETE /contacts" in rows
+    assert "    <- index.html:9 <input#search> GET partial (hx-target=tbody)" in rows
+    # A fragment file three handlers render
+    archive = text.split("archive_ui.html\n", 1)[1].split("\nedit.html", 1)[0]
+    assert [li.strip() for li in archive.splitlines() if not li.startswith("    ")] == [
+        "archive_status()  GET /contacts/archive",
+        "reset_archive()  DELETE /contacts/archive",
+        "start_archive()  POST /contacts/archive",
+    ]
+    assert text.rstrip().endswith("hx map: 7 templates, 15 handlers")
+    assert "[error]" not in text and "controls," not in text  # not the by-handler report as well
