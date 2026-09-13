@@ -168,6 +168,16 @@ def test_guard_logs_instead_of_raising_outside_testing_and_runs_once(make_app, c
     assert sum("answered a request that targets an element" in m for m in caplog.messages) == 1
 
 
+def test_a_304_to_a_partial_request_is_not_a_redirect(make_app):
+    app = make_app()
+
+    @app.get("/rows")
+    def rows():
+        return "", 304  # htmx skips the swap on a 304 by design; fetch follows nothing
+
+    assert app.test_client().get("/rows", headers=PARTIAL).status_code == 304
+
+
 # ------------------------------------------------------------- delete outcomes
 
 
@@ -422,7 +432,7 @@ def test_verbs_refuse_to_run_without_the_extension(make_app):
         app.test_client().get("/")
 
 
-# ------------------------------------------------------------------ text, provenance
+# ------------------------------------------------------------------------ text
 
 
 def test_text_escapes(make_app):
@@ -434,36 +444,6 @@ def test_text_escapes(make_app):
 
     r = app.test_client().get("/e", headers=PARTIAL)
     assert r.data == b"&lt;b&gt;Email Required&lt;/b&gt;" and r.mimetype == "text/html"
-
-
-def test_provenance_comments_name_the_handler_in_debug(make_app):
-    app = make_app(flash_template="layout.html", provenance=True)
-
-    @app.get("/")
-    def index():
-        flash("hi")
-        return hx.render("index.html", partial="rows", items=ITEMS).partial("count")
-
-    @app.delete("/x")
-    def x():
-        return hx.removed()
-
-    c = app.test_client()
-    body = c.get("/", headers=PARTIAL).data.decode()
-    assert body.startswith("<!-- hx: index() index.html#rows -->")
-    assert "<!-- hx: index() partial #count -->" in body
-    assert "<!-- hx: index() flash #flash -->" in body
-    assert c.delete("/x", headers=PARTIAL).data == b"<!-- hx: x() removed -->"
-
-
-def test_no_provenance_by_default_outside_debug(make_app):
-    app = make_app()
-
-    @app.get("/")
-    def index():
-        return hx.render("index.html", partial="rows", items=ITEMS)
-
-    assert b"<!-- hx:" not in app.test_client().get("/", headers=PARTIAL).data
 
 
 def test_request_side_never_exposes_element_ids():

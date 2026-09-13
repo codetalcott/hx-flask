@@ -108,8 +108,17 @@ def test_implicit_inheritance_is_the_2e_todo():
     assert "hx-target:inherited" in f[0].message
     body_1e = '<html><body hx-boost="true"><a href="/x">x</a></body></html>'
     f = lint_html(body_1e)
-    assert rules(f) == ["implicit-inheritance"] and "boosts nothing" in f[0].message
+    assert rules(f, "error") == ["boost-not-inherited"] and "does nothing" in f[0].message
     assert lint_html('<html><body hx-boost:inherited="true"><a href="/x">x</a></body></html>') == []
+
+
+def test_a_plain_boost_in_a_layout_is_an_error_though_the_links_are_elsewhere():
+    layout = '<html><body hx-boost="true"><main>{% block content %}{% endblock %}</main></body></html>'
+    f = lint_source(layout, file="layout.html")
+    assert rules(f, "error") == ["boost-not-inherited"] and "hx-boost:inherited" in f[0].message
+    assert lint_source('<div hx-boost="false"><a href="/x">x</a></div>') != []  # a plain false disables nothing either
+    assert lint_source('<a hx-boost="false" href="/file">x</a><form hx-boost="true"></form>') == []
+    assert lint_source('<div hx-boost:inherited="true">{% block content %}{% endblock %}</div>') == []
 
 
 def test_delete_controls():

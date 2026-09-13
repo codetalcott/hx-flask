@@ -378,9 +378,10 @@ class _Linter:
             if inner or boosted_inner:
                 n = len(inner) or "the boosted"
                 self.add("warning", "implicit-inheritance", node, f"{attr} on <{node.describe()}> reaches none of the {n} controls inside it; htmx 4 needs {attr}:inherited.")
-        boost = node.attrs.get("hx-boost")
-        if boost is not None and boost != "false" and node.tag not in ("a", "form") and any(d.tag in ("a", "form") for d in node.descendants()):
-            self.add("warning", "implicit-inheritance", node, f"hx-boost on <{node.describe()}> boosts nothing; htmx 4 needs hx-boost:inherited.")
+        # htmx 4 boosts only <a> and <form>; on anything else a plain hx-boost is read by nothing.
+        # No descendant test: in a layout the links live in the child templates.
+        if node.attrs.get("hx-boost") is not None and node.tag not in ("a", "form"):
+            self.add("error", "boost-not-inherited", node, f"hx-boost on <{node.describe()}> does nothing; htmx 4 boosts only <a> and <form>, and reaches them from an ancestor only with hx-boost:inherited.")
 
     def delete_control(self, node: Node) -> None:
         if node.own("hx-delete") is None:
