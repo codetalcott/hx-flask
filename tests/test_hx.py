@@ -5,6 +5,7 @@ is loud, or cannot be represented.
 """
 
 import json
+import sys
 
 import pytest
 from flask import abort, flash, make_response, redirect, render_template, request, send_file
@@ -166,6 +167,49 @@ def test_guard_logs_instead_of_raising_outside_testing_and_runs_once(make_app, c
         r = app.test_client().post("/save", headers=PARTIAL)
     assert r.status_code == 302  # logged, not raised, so the redirect went out
     assert sum("answered a request that targets an element" in m for m in caplog.messages) == 1
+
+
+def test_navigate_leaves_the_page_whatever_the_control_targets(make_app):
+    app = make_app()
+
+    @app.get("/rows")
+    def rows():
+        return hx.navigate("/login")  # a login check in front of a fragment handler
+
+    c = app.test_client()
+    for headers in ({}, FULL):
+        r = c.get("/rows", headers=headers)
+        assert (r.status_code, r.headers["Location"]) == (303, "/login") and "HX-Redirect" not in r.headers
+    r = c.get("/rows", headers=PARTIAL)  # fetch would follow a 303 into the target; HX-Redirect is a full load
+    assert (r.status_code, r.data, r.headers["HX-Redirect"]) == (200, b"", "/login") and "Location" not in r.headers
+
+
+def test_navigate_leaves_the_flash_for_the_page_it_loads(make_app):
+    app = make_app(flash_template="layout.html")
+
+    @app.get("/rows")
+    def rows():
+        flash("Please log in")
+        return hx.navigate("/")
+
+    @app.get("/")
+    def index():
+        return hx.render("index.html", partial="rows", items=ITEMS)
+
+    c = app.test_client()
+    assert c.get("/rows", headers=PARTIAL).data == b""  # no <hx-partial>: that would consume the message
+    assert b"Please log in" in c.get("/").data
+
+
+def test_a_302_to_a_partial_request_names_navigate(make_app):
+    app = make_app()
+
+    @app.get("/rows")
+    def rows():
+        return redirect("/login")  # what a login_required decorator returns
+
+    with pytest.raises(HxRedirectIntoFragment, match="hx.navigate to leave the page"):
+        app.test_client().get("/rows", headers=PARTIAL)
 
 
 def test_a_304_to_a_partial_request_is_not_a_redirect(make_app):
@@ -419,6 +463,51 @@ def test_htmx_request_without_request_type_is_a_protocol_error(make_app):
 
     with pytest.raises(HxProtocolError, match="needs htmx 4"):
         app.test_client().get("/", headers={"HX-Request": "true"})
+
+
+def test_a_response_built_without_a_verb_to_an_htmx_2_request_is_a_protocol_error(make_app, caplog):
+    app = make_app()
+
+    @app.post("/add")
+    def add():
+        return render_template("rows.html", items=ITEMS)  # never asks the request type, so no verb raises
+
+    htmx2 = {"HX-Request": "true"}  # what a test written from htmx 2 habit sends
+    with pytest.raises(HxProtocolError, match=r"add\(\) answered an htmx request that has no HX-Request-Type"):
+        app.test_client().post("/add", headers=htmx2)
+    assert app.test_client().post("/add").status_code == 200  # a browser
+    app.testing = False
+    with caplog.at_level("WARNING"):
+        assert app.test_client().post("/add", headers=htmx2).status_code == 200
+    assert sum("no HX-Request-Type" in m for m in caplog.messages) == 1
+
+
+def test_lint_that_cannot_import_hxlint_is_loud(make_app, monkeypatch, caplog):
+    from hx import HxLintError
+
+    monkeypatch.setitem(sys.modules, "hxlint", None)  # hx.py copied into an app without hxlint.py
+    app = make_app()
+
+    @app.get("/")
+    def index():
+        return hx.render("index.html", partial="rows", items=ITEMS)
+
+    c = app.test_client()
+    with pytest.raises(HxLintError, match="Copy hxlint.py and hx_vocab.py next to hx.py, or pass HX\\(app, lint=False\\)"):
+        c.get("/")
+
+    off = make_app(lint=False)
+
+    @off.get("/")
+    def quiet():
+        return hx.render("index.html", partial="rows", items=ITEMS)
+
+    assert off.test_client().get("/").status_code == 200  # off means off
+    app.testing, app.debug = False, True
+    with caplog.at_level("WARNING"):
+        c.get("/")
+        c.get("/")
+    assert sum("the lint cannot check" in m for m in caplog.messages) == 1  # once, not per response
 
 
 def test_verbs_refuse_to_run_without_the_extension(make_app):

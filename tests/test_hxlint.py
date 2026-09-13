@@ -101,6 +101,27 @@ def test_htmx2_event_names_in_hx_on():
     assert rules(lint_html('<div hx-on="htmx:beforeRequest -> x()"></div>')) == ["htmx2-event-name"]
 
 
+def test_htmx2_kebab_case_event_names_in_hx_on():
+    # htmx 2's documented form; htmx 4 listens for htmx:after-request, which it never fires
+    [finding] = lint_html('<form hx-post="/x" hx-on::after-request="this.reset()"></form>')
+    assert finding.rule == "htmx2-event-name" and finding.severity == "error"
+    assert "htmx:after-request is htmx 2's kebab-case name for htmx:afterRequest; htmx 4 fires only htmx:after:request" in finding.message
+    assert rules(lint_html('<div hx-on:htmx:config-request="x()"></div>')) == ["htmx2-event-name"]
+    assert rules(lint_html('<div hx-on="htmx:before-swap -> x()"></div>')) == ["htmx2-event-name"]
+    assert lint_html('<form hx-post="/x" hx-on::after:request="this.reset()"></form>') == []
+    assert lint_html('<div hx-on:my-event="x()"></div>') == []  # an app's own kebab-case event
+
+
+def test_htmx2_event_names_in_hx_trigger():
+    assert rules(lint_html('<div hx-get="/x" hx-trigger="htmx:afterSwap from:body"></div>')) == ["htmx2-event-name"]
+    [finding] = lint_html('<div hx-get="/x" hx-trigger="load, htmx:after-request from:body"></div>')
+    assert "htmx:after-request is htmx 2's kebab-case name for htmx:afterRequest" in finding.message
+    assert rules(lint_html('<div hx-get="/x" hx-trigger="htmx:beforeFoo"></div>')) == ["htmx2-event-name"]
+    # htmx 4's own names, including the camelCase segment some of them carry, and an app's events
+    for trigger in ("htmx:after:request from:body", "htmx:after:viewTransition", "contacts-changed from:body", "keyup delay:200ms changed"):
+        assert lint_html(f'<div hx-get="/x" hx-trigger="{trigger}"></div>') == [], trigger
+
+
 def test_implicit_inheritance_is_the_2e_todo():
     archive_1e = '<div id="archive-ui" hx-target="this" hx-swap="outerHTML"><button hx-post="/archive">Go</button></div>'
     f = lint_html(archive_1e)

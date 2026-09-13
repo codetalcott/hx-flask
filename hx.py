@@ -4,7 +4,7 @@ hx.py -- handler-first htmx 4 for Flask.
 The handler owns every response-side decision: which representation to send,
 the status, what changed elsewhere on the page, what to announce. It says so
 through htmx 4's own protocol: ``HX-Request-Type`` on the way in, ``HX-Trigger``,
-``<hx-partial>``, 422 and a plain 303 on the way out.
+``<hx-partial>``, 422, a plain 303 and ``HX-Redirect`` on the way out.
 
 The HTML keeps the request-side controls (``hx-get``, ``hx-target``,
 ``hx-trigger``, ``hx-swap``) and stays sufficient to predict the DOM effect.
@@ -24,7 +24,8 @@ Fragments are Jinja blocks of the page template, named in the handler::
 Three rules that cause most mistakes:
 
 1. Never ``return redirect(...)``, ``return ""`` or ``return "", 204`` to an
-   htmx request. Say what happened: ``hx.redirect``, ``hx.removed``, ``hx.text``.
+   htmx request. Say what happened: ``hx.redirect``, ``hx.navigate``,
+   ``hx.removed``, ``hx.text``.
 2. Never read ``HX-Source`` or ``HX-Target``. If you want to, the real question
    is whether the client asked for a page or a fragment: ``hx.wants_page``.
 3. A block used as a partial (``.partial("count")``, the flash block) must have a
@@ -129,7 +130,7 @@ class HxLintError(HxError):
 class HxResponse(Response):
     """A Flask response with the handler-side vocabulary attached."""
 
-    hx_kind: str = "page"  # page | fragment | text | removed | redirect
+    hx_kind: str = "page"  # page | fragment | text | removed | redirect | navigate
     hx_template: str | None = None
     hx_context: dict[str, Any] | None = None
 
@@ -324,10 +325,26 @@ class _Hx:
             raise HxRedirectIntoFragment(
                 f"{request.endpoint}() redirects to {url}, but this htmx request targets an element, not the body; "
                 "fetch would follow the redirect and swap the page into it. Give the control hx-target=\"body\", "
-                "or return a fragment."
+                "call hx.navigate to leave the page, or return a fragment."
             )
         resp = _werkzeug_redirect(url, code=code, Response=HxResponse)
         resp.hx_kind = "redirect"
+        return resp
+
+    def navigate(self, url: str) -> HxResponse:
+        """
+        Leave this page for ``url``, whatever the control targets: a login check,
+        an expired session. A plain 303 when the request wanted a page;
+        ``HX-Redirect`` when it targets an element, so htmx loads ``url`` as a
+        full page instead of swapping it into the target.
+        """
+        _state()
+        if self.wants_page:
+            resp = _werkzeug_redirect(url, code=303, Response=HxResponse)
+        else:
+            resp = _response("", kind="navigate", template=None, context=None)
+            resp.headers["HX-Redirect"] = url
+        resp.hx_kind = "navigate"
         return resp
 
     def removed(self) -> HxResponse:
@@ -367,8 +384,9 @@ hx = _Hx()
 
 class HX:
     """
-    Register the after-request work: ``Vary``, the guards (a 3xx, a 204 or a
-    response built without an hx verb answering a partial request), the flash
+    Register the after-request work: ``Vary``, the guards (an htmx request with
+    no ``HX-Request-Type``; a 3xx, a 204 or a response built without an hx verb
+    answering a partial request), the flash
     bridge and the lint. ``flash_template`` is the template whose ``flash``
     block renders pending messages; its root element must be ``id="flash"``.
     """
@@ -384,6 +402,7 @@ class HX:
         self.flash_template = flash_template
         self.flash_block = flash_block
         self.lint = lint
+        self._reported_lint_missing = False
         self.app = None
         if app is not None:
             self.init_app(app)
@@ -410,11 +429,20 @@ class HX:
         response.vary.update(VARY_HEADERS)
 
         is_htmx = request.headers.get(REQUEST_HEADER) == "true"
-        partial = is_htmx and request.headers.get(REQUEST_TYPE_HEADER) == "partial"
+        request_type = request.headers.get(REQUEST_TYPE_HEADER)
+        partial = is_htmx and request_type == "partial"
         status = response.status_code
         html = response.mimetype == "text/html" and not response.is_streamed and not response.direct_passthrough
 
-        if partial and 300 <= status < 400 and status != 304:  # htmx skips the swap on a 304 by design
+        if is_htmx and request_type not in ("full", "partial"):
+            # A verb raises this itself; this catches the responses built without one.
+            _loud(
+                HxProtocolError,
+                "answered an htmx request that has no HX-Request-Type, so nothing can tell whether it wanted a page "
+                "or a fragment; this needs htmx 4. A proxy stripping headers, an htmx 2 client, or a test that sends "
+                "only HX-Request are the usual causes.",
+            )
+        elif partial and 300 <= status < 400 and status != 304:  # htmx skips the swap on a 304 by design
             if isinstance(request.routing_exception, RequestRedirect):
                 _loud(
                     HxRedirectIntoFragment,
@@ -425,7 +453,8 @@ class HX:
                 _loud(
                     HxRedirectIntoFragment,
                     f"answered a request that targets an element with a {status}; fetch will follow it and swap the "
-                    "page into that element. Use hx.redirect on a body-targeted control, or return a fragment.",
+                    "page into that element. Use hx.redirect on a body-targeted control, hx.navigate to leave the "
+                    "page (a login check, an expired session), or return a fragment.",
                 )
         elif partial and status == 204:
             _loud(HxNoSwap, "answered a request that targets an element with a 204; htmx 4 does not swap it. Use hx.removed() with hx-swap=\"delete\", or return a fragment.")
@@ -437,7 +466,8 @@ class HX:
                     "make_response); whether it is a page or a fragment cannot be checked. "
                     "Use hx.render(..., partial=...), hx.fragment, hx.text or hx.removed.",
                 )
-            self._bridge_flash(response)
+            if getattr(response, "hx_kind", None) != "navigate":  # the next page shows the message
+                self._bridge_flash(response)
 
         if html and self.lint_enabled:
             self._lint(response)
@@ -461,7 +491,17 @@ class HX:
     def _lint(self, response) -> None:
         try:
             import hxlint
-        except ImportError:
+        except ImportError as e:
+            # Copying hx.py alone must not switch the lint off without a word. Outside tests, say it once.
+            if not current_app.testing:
+                if self._reported_lint_missing:
+                    return
+                self._reported_lint_missing = True
+            _loud(
+                HxLintError,
+                f"rendered HTML the lint cannot check: {e}. Copy hxlint.py and hx_vocab.py next to hx.py, "
+                "or pass HX(app, lint=False).",
+            )
             return
         body = response.get_data(as_text=True)
         findings = hxlint.lint_html(body)

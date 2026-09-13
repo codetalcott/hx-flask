@@ -50,6 +50,7 @@ __all__ = [
     "format_by_template",
     "PAGE_VERBS",
     "FRAGMENT_VERBS",
+    "LEAVING_VERBS",
     "VERBS",
     "ESCAPE_HATCHES",
 ]
@@ -65,9 +66,11 @@ DOM_EVENTS = {
     "copy", "cut", "select", "invalid", "resize", "hashchange", "popstate", "DOMContentLoaded",
 } | set(vocab.SPECIAL_TRIGGERS)
 
-VERBS = {"render", "page", "fragment", "invalid", "redirect", "removed", "text"}
+VERBS = {"render", "page", "fragment", "invalid", "redirect", "removed", "text", "navigate"}
 PAGE_VERBS = {"page"}
 FRAGMENT_VERBS = {"fragment", "text", "removed"}
+# Leave the page whatever the control targets, so they say nothing about the shape the handler answers with.
+LEAVING_VERBS = {"navigate"}
 ESCAPE_HATCHES = ("retarget", "reswap")
 ALL_METHODS = "*"
 # Request attributes that read a body. htmx 4 sends GET and DELETE values as query parameters.
@@ -486,7 +489,7 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
                 f"(or the verb is in a helper the scanner cannot see)."
             )
             continue
-        verbs = h.verbs_for(c.method)
+        verbs = h.verbs_for(c.method) - LEAVING_VERBS  # a login check does not hide a page-only handler
         if not verbs:
             continue
         if c.scope == "partial" and verbs <= PAGE_VERBS:
