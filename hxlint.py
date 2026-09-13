@@ -34,6 +34,9 @@ __all__ = ["Finding", "lint_html", "lint_source", "lint_paths", "hcon_parse", "h
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 JINJA = "__JINJA__"
 SELECTOR_HEADS = {"closest", "next", "previous", "find", "findAll", "global"}
+# htmx 2 event names, lowercased without hyphens: attribute names reach the lint lowercased, and htmx 2 also
+# fired each event in kebab-case, the form its docs used (hx-on::after-request).
+_HTMX2_EVENTS = {k.lower(): (k, v) for k, v in V.HTMX2_EVENT_NAMES.items()}
 
 
 # ---------------------------------------------------------------------- HCON
@@ -332,6 +335,7 @@ class _Linter:
             return
         for spec in specs:
             name = spec.pop("name").split("[", 1)[0]
+            self.event_name(node, name)
             previous_key, previous_val = None, None
             for key, val in spec.items():
                 if key == "queue":
@@ -356,14 +360,21 @@ class _Linter:
             events.append("htmx:" + attr[len("hx-on::"):])
         elif attr.startswith("hx-on:"):
             events.append(attr[len("hx-on:"):])
-        lowered = {k.lower(): (k, v) for k, v in V.HTMX2_EVENT_NAMES.items()}
         for event in events:
-            event = event.split("[", 1)[0]
-            if event.lower() in lowered:  # attribute names reach us lowercased
-                old, new = lowered[event.lower()]
-                self.add("error", "htmx2-event-name", node, f"{old} is the htmx 2 event name; htmx 4 calls it {new}.")
-            elif re.match(r"^htmx:[a-z]+[A-Z]", event):
-                self.add("error", "htmx2-event-name", node, f"{event} looks like an htmx 2 camelCase event; htmx 4 names are colon-separated (htmx:after:swap).")
+            self.event_name(node, event)
+
+    def event_name(self, node: Node, event: str) -> None:
+        """An event listened for in ``hx-on`` or ``hx-trigger``: htmx 4 fires none of htmx 2's names."""
+        event = event.split("[", 1)[0]
+        found = _HTMX2_EVENTS.get(event.lower().replace("-", ""))
+        if found and "-" in event:
+            old, new = found
+            self.add("error", "htmx2-event-name", node, f"{event} is htmx 2's kebab-case name for {old}; htmx 4 fires only {new}, so this listener never runs.")
+        elif found:
+            old, new = found
+            self.add("error", "htmx2-event-name", node, f"{old} is the htmx 2 event name; htmx 4 calls it {new}.")
+        elif re.match(r"^htmx:[a-z]+[A-Z]", event):
+            self.add("error", "htmx2-event-name", node, f"{event} looks like an htmx 2 camelCase event; htmx 4 names are colon-separated (htmx:after:swap).")
 
     def inheritance(self, node: Node) -> None:
         if node.tag == "hx-partial":

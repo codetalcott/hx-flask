@@ -159,6 +159,36 @@ def test_map_sees_verbs_through_an_alias_of_hx(make_app):
     assert m.handlers["rows"].verbs == {"render"} and m.warnings == [] and m.errors == []
 
 
+def test_navigate_says_nothing_about_the_shape_a_handler_answers_with(make_app):
+    from flask import session
+
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <button hx-get="{{ url_for('guarded') }}" hx-target="#panel">guarded</button>
+            <button hx-get="{{ url_for('gone') }}" hx-target="#panel">gone</button>
+            <a href="{{ url_for('gone') }}">gone, boosted</a>
+            <div id="panel"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.get("/guarded")
+    def guarded():
+        if "user" not in session:
+            return hx.navigate("/login")
+        return hx.page("page.html")  # the login check must not hide this
+
+    @app.get("/gone")
+    def gone():
+        return hx.navigate("/elsewhere")  # right for a partial control and a boosted link alike
+
+    m = build_map(app)
+    assert m.handlers["gone"].verbs == {"navigate"}
+    assert m.errors == ["page.html:2 <button> targets an element (hx-target=#panel) but guarded() only calls hx.page; the page would land inside it. Target body, or give the handler a partial."]
+    assert m.warnings == []
+
+
 def test_map_reports_request_headers_that_name_an_element(make_app):
     from flask import render_template, request
 

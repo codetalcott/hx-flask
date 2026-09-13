@@ -89,7 +89,7 @@ or `HTMX4.md` names a repair. `contacts_model.py` reads `contacts.json` from the
 ## Rules the tooling enforces
 
 - Never `return redirect(...)`, `return ""`, `return "", 204` or `render_template(...)` to an htmx
-  request. Use `hx.redirect`, `hx.removed`, `hx.text`, `hx.render`.
+  request. Use `hx.redirect`, `hx.navigate`, `hx.removed`, `hx.text`, `hx.render`.
 - Write htmx 4, not htmx 2: `:inherited` for descendants (`<body hx-boost:inherited="true">`); no
   `hx-ext`; colon-separated events; `show:top showTarget:#x`.
 - Routes must match control URLs exactly; a trailing-slash 308 answering a partial request is loud.

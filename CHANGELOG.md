@@ -4,6 +4,24 @@
 
 ### Added
 
+- `hx.navigate(url)`: leave the page whatever the control targets, for a login
+  check or an expired session. A plain 303 when the request wanted a page,
+  `HX-Redirect` when it targets an element. A flash queued before it waits for
+  the page it loads. The map treats it as saying nothing about shape, so a
+  login branch does not hide a page-only handler.
+- The after-request guard raises `HxProtocolError` under `app.testing` (and
+  logs otherwise) for an htmx request without `HX-Request-Type` answered
+  without a verb. A test that sends only `HX-Request` no longer passes every
+  guard silently.
+- A lint that is on but cannot import `hxlint` raises `HxLintError` under
+  `app.testing`, naming the files to copy, and logs once otherwise. It used to
+  switch itself off without a word when only `hx.py` was copied.
+- Lint rule `htmx2-event-name` catches kebab-case event names
+  (`hx-on::after-request`), htmx 2's documented form, which htmx 4 never fires,
+  and checks the events in `hx-trigger` as well as `hx-on`
+  (`hx-trigger="htmx:afterSwap from:body"`).
+- README: "Use it in your app", the files to copy and what each one gives.
+  `llms.txt`: the same, the app-factory CLI, and leaving the page.
 - `flask hx map` errors on a handler that reads the `HX-Trigger` request header,
   which htmx 4 does not send, and on one that reads `request.form` on DELETE,
   which htmx 4 sends as query parameters; it warns on a read of `HX-Target` or
