@@ -17,6 +17,11 @@ Its second is the one the request-time guards cannot make: a control that
 reaches a handler calling no verb at all, so nothing can check its shape, and
 a handler that calls ``.retarget()`` or ``.reswap()``, so its controls'
 templates no longer predict the DOM effect.
+
+The rest need no verb, so they hold for code that never adopted one: a handler
+that reads the ``HX-Trigger`` request header htmx 4 no longer sends (an error)
+or ``HX-Target`` / ``HX-Source`` (a warning), and a handler that reads the
+request body on DELETE, which htmx 4 sends as query parameters (an error).
 """
 
 from __future__ import annotations
@@ -65,6 +70,14 @@ PAGE_VERBS = {"page"}
 FRAGMENT_VERBS = {"fragment", "text", "removed"}
 ESCAPE_HATCHES = ("retarget", "reswap")
 ALL_METHODS = "*"
+# Request attributes that read a body. htmx 4 sends GET and DELETE values as query parameters.
+BODY_ATTRS = ("POST", "FILES", "form", "files")
+# htmx 2 request headers that htmx 4 does not send (the requesting element is HX-Source).
+GONE_HEADERS = ("hx-trigger", "hx-trigger-name")
+# Sent by htmx 4, but each names an element, which rule 2 says a handler never reads.
+ELEMENT_HEADERS = ("hx-target", "hx-source")
+_REQUEST = ("request", "self.request")
+_HEADER_CONTAINERS = {f"{r}.{c}" for r in _REQUEST for c in ("headers", "META")}
 
 
 @dataclass
@@ -101,6 +114,10 @@ class Handler:
     announces: set[str] = field(default_factory=set)
     escapes: set[str] = field(default_factory=set)
     reads_values: bool = False
+    value_reads: dict[str, set[str]] = field(default_factory=dict)  # method scope -> request.args, request.GET, ...
+    body_reads: dict[str, set[str]] = field(default_factory=dict)  # method scope -> request.form, request.POST, ...
+    header_reads: set[str] = field(default_factory=set)  # hx-trigger, hx-target, ... as read from the request
+    methods: set[str] = field(default_factory=set)  # declared by the route; empty when the adapter cannot know
     flashes: bool = False
     controls: list[Control] = field(default_factory=list)
 
@@ -110,16 +127,11 @@ class Handler:
         method), ``"GET,POST"`` (only those) or ``"!DELETE"`` (every method but
         those), from ``if request.method == ...`` branches in the handler.
         """
-        found: set[str] = set()
-        for scope, verbs in self.by_method.items():
-            if scope == ALL_METHODS:
-                found |= verbs
-            elif scope.startswith("!"):
-                if method not in scope[1:].split(","):
-                    found |= verbs
-            elif method in scope.split(","):
-                found |= verbs
-        return found
+        return _in_scope(self.by_method, method)
+
+    def body_reads_for(self, method: str) -> set[str]:
+        """The request-body attributes a request with ``method`` can reach, scoped like ``verbs_for``."""
+        return _in_scope(self.body_reads, method)
 
     @property
     def label(self) -> str:
@@ -247,14 +259,16 @@ class HandlerVisitor(ast.NodeVisitor):
     Walks one handler's body. ``verb_names`` maps the local names a call can
     use to the verb they mean (``{"render": "render", "hx.render": "render"}``);
     ``flash_names`` are the calls that queue a message; ``value_attrs`` the
-    request attributes that read submitted values.
+    request attributes that read submitted values; ``body_attrs`` those of
+    them that read the request body.
     """
 
-    def __init__(self, handler: Handler, verb_names: dict[str, str], flash_names: Iterable[str], value_attrs: Iterable[str], method: str = ALL_METHODS):
+    def __init__(self, handler: Handler, verb_names: dict[str, str], flash_names: Iterable[str], value_attrs: Iterable[str], method: str = ALL_METHODS, body_attrs: Iterable[str] = BODY_ATTRS):
         self.h = handler
         self.verb_names = verb_names
         self.flash_names = set(flash_names)
         self.value_attrs = set(value_attrs)
+        self.body_attrs = set(body_attrs)
         self.method = method
 
     def _dotted(self, node: ast.AST) -> str | None:
@@ -314,11 +328,37 @@ class HandlerVisitor(ast.NodeVisitor):
                 self.h.announces.add(str(node.args[0].value))
             elif node.func.attr in ESCAPE_HATCHES:
                 self.h.escapes.add(node.func.attr)
+            elif node.func.attr == "get" and node.args:
+                self._header_read(node.func.value, node.args[0])  # request.headers.get("HX-Trigger")
         self.generic_visit(node)
 
+    def visit_Subscript(self, node: ast.Subscript):
+        if isinstance(node.ctx, ast.Load):
+            self._header_read(node.value, node.slice)  # request.META["HTTP_HX_TRIGGER"]
+        self.generic_visit(node)
+
+    def visit_Compare(self, node: ast.Compare):
+        if len(node.ops) == 1 and isinstance(node.ops[0], (ast.In, ast.NotIn)):
+            self._header_read(node.comparators[0], node.left)  # "HX-Target" in request.headers
+        self.generic_visit(node)
+
+    def _header_read(self, container: ast.AST, key: ast.AST) -> None:
+        if self._dotted(container) not in _HEADER_CONTAINERS:
+            return
+        if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+            return
+        name = key.value.lower().replace("_", "-")
+        name = name[len("http-"):] if name.startswith("http-") else name
+        if name in GONE_HEADERS or name in ELEMENT_HEADERS:
+            self.h.header_reads.add(name)
+
     def visit_Attribute(self, node: ast.Attribute):
-        if node.attr in self.value_attrs and self._dotted(node.value) in ("request", "self.request"):
-            self.h.reads_values = True
+        if self._dotted(node.value) in _REQUEST:
+            if node.attr in self.value_attrs:
+                self.h.reads_values = True
+                self.h.value_reads.setdefault(self.method, set()).add(f"request.{node.attr}")
+            if node.attr in self.body_attrs:
+                self.h.body_reads.setdefault(self.method, set()).add(f"request.{node.attr}")
         self.generic_visit(node)
 
     def _templates(self, verb: str, call: ast.Call):
@@ -330,6 +370,19 @@ class HandlerVisitor(ast.NodeVisitor):
         partial = kw.get("partial") or (consts[1] if len(consts) > 1 else None)
         if template:
             self.h.templates.add(f"{template}#{partial}" if partial and "." not in partial else (partial or template))
+
+
+def _in_scope(scopes: dict[str, set[str]], method: str) -> set[str]:
+    found: set[str] = set()
+    for scope, items in scopes.items():
+        if scope == ALL_METHODS:
+            found |= items
+        elif scope.startswith("!"):
+            if method not in scope[1:].split(","):
+                found |= items
+        elif method in scope.split(","):
+            found |= items
+    return found
 
 
 def _narrow(scope: str, methods: set[str]) -> str:
@@ -364,8 +417,8 @@ def _methods_tested(test: ast.AST) -> set[str] | None:
     return None
 
 
-def scan_function(handler: Handler, tree: ast.AST, verb_names: dict[str, str], flash_names=("flash", "add_message", "success", "info", "warning", "error", "debug"), value_attrs=("GET", "POST", "FILES", "body", "args", "form", "values", "json", "get_json"), method: str = ALL_METHODS) -> None:
-    HandlerVisitor(handler, verb_names, flash_names, value_attrs, method).visit(tree)
+def scan_function(handler: Handler, tree: ast.AST, verb_names: dict[str, str], flash_names=("flash", "add_message", "success", "info", "warning", "error", "debug"), value_attrs=("GET", "POST", "FILES", "body", "args", "form", "files", "values", "json", "get_json"), method: str = ALL_METHODS, body_attrs=BODY_ATTRS) -> None:
+    HandlerVisitor(handler, verb_names, flash_names, value_attrs, method, body_attrs).visit(tree)
 
 
 # --------------------------------------------------------------------- checks
@@ -377,6 +430,32 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
     message: ``"hx."`` for Flask's ``hx.page``, ``""`` for Django's ``page``.
     """
     m = Map(handlers, controls, listeners, script_names)
+    wants_page = f"ask HX-Request-Type ({verb_prefix}wants_page)"
+    for h in sorted(handlers.values(), key=lambda h: h.endpoint):
+        for header in sorted(h.header_reads):
+            spelled = "-".join(part.capitalize() for part in header.split("-")).replace("Hx-", "HX-")
+            if header in GONE_HEADERS:
+                m.errors.append(
+                    f"{h.label} reads the {spelled} request header, which htmx 4 does not send (the requesting element "
+                    f"is HX-Source), so the test is always false. To choose a page or a fragment, {wants_page}."
+                )
+            else:
+                m.warnings.append(
+                    f"{h.label} reads the {spelled} request header, so it depends on an element id the template can "
+                    f"change. To choose a page or a fragment, {wants_page}."
+                )
+    body_on_delete: set[str] = set()
+
+    def delete_reads_body(h: Handler) -> None:
+        reads = h.body_reads_for("DELETE")
+        if reads and h.endpoint not in body_on_delete:
+            body_on_delete.add(h.endpoint)
+            m.errors.append(
+                f"{h.label} reads {', '.join(sorted(reads))} on DELETE, but htmx 4 sends DELETE values as query "
+                f"parameters, so it is always empty; read the query string (request.args / request.GET), with "
+                f'hx-include="closest form" on the control if the values are in a form.'
+            )
+
     for c in controls:
         if c.problem:
             # A computed URL is ordinary template code; a name or path that resolves to nothing is a defect.
@@ -388,6 +467,18 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
         if h is None:
             continue
         h.controls.append(c)
+        for hatch in sorted(h.escapes):
+            m.warnings.append(
+                f"{h.label} calls .{hatch}(); {c.file}:{c.line} <{c.element}> can no longer predict its DOM effect "
+                f"from the template. Keep the comment that says why."
+            )
+        if c.method == "DELETE" and not c.boosted:
+            delete_reads_body(h)
+            if not c.include and _in_scope(h.value_reads, "DELETE") and h.endpoint not in body_on_delete:
+                m.warnings.append(
+                    f"{c.file}:{c.line} <{c.element}> sends no form values on DELETE, but {h.label} reads request values; "
+                    f'add hx-include="closest form".'
+                )
         if not h.verbs:
             m.warnings.append(
                 f"{c.file}:{c.line} <{c.element}> reaches {h.label} which calls no hx verb, so whether it answers "
@@ -395,11 +486,6 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
                 f"(or the verb is in a helper the scanner cannot see)."
             )
             continue
-        for hatch in sorted(h.escapes):
-            m.warnings.append(
-                f"{h.label} calls .{hatch}(); {c.file}:{c.line} <{c.element}> can no longer predict its DOM effect "
-                f"from the template. Keep the comment that says why."
-            )
         verbs = h.verbs_for(c.method)
         if not verbs:
             continue
@@ -413,11 +499,9 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
                 f"{c.file}:{c.line} <{c.element}> wants a page ({c.why}) but {h.label} only calls "
                 f"{verb_prefix}{'/'.join(sorted(verbs))}; a bare fragment would land in <body>."
             )
-        if c.method == "DELETE" and not c.include and h.reads_values and not c.boosted:
-            m.warnings.append(
-                f"{c.file}:{c.line} <{c.element}> sends no form values on DELETE, but {h.label} reads request values; "
-                f'add hx-include="closest form".'
-            )
+    for h in sorted(handlers.values(), key=lambda h: h.endpoint):
+        if h.methods == {"DELETE"}:
+            delete_reads_body(h)  # no control needs to resolve: the route itself is DELETE-only
     announced = {e for h in handlers.values() for e in h.announces}
     listened = {li.event for li in listeners}
     for event in sorted(listened - announced):

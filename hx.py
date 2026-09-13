@@ -162,15 +162,7 @@ class HxResponse(Response):
             raise HxError(".partial() needs a template; this response has none")
         html = _render_block(tpl, block, dict(self.hx_context or {}))
         _check_root_id(html, block, f"{tpl}#{block}")
-        self.set_data(self.get_data() + _wrap_partial(block, html, "partial").encode())
-        return self
-
-    def push_url(self, url: str) -> HxResponse:
-        self.headers["HX-Push-Url"] = url
-        return self
-
-    def replace_url(self, url: str) -> HxResponse:
-        self.headers["HX-Replace-Url"] = url
+        self.set_data(self.get_data() + _wrap_partial(block, html).encode())
         return self
 
     def with_status(self, code: int) -> HxResponse:
@@ -207,12 +199,6 @@ def _loud(exc: type[HxError], message: str) -> None:
     current_app.logger.warning("hx: %s", message)
 
 
-def _provenance(detail: str) -> str:
-    if not _state().provenance:
-        return ""
-    return f"<!-- hx: {request.endpoint}() {detail} -->\n"
-
-
 _ROOT_TAG = re.compile(r"^\s*(?:<!--.*?-->\s*)*<([a-zA-Z][\w-]*)([^>]*)>", re.S)
 _ID_ATTR = re.compile(r"""\sid\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))""")
 
@@ -228,8 +214,8 @@ def _check_root_id(html: str, block: str, where: str) -> None:
         raise HxPartialRootId(f"{where} is used as a partial, so its root <{m.group(1)}> must carry id=\"{block}\"; it has {have}")
 
 
-def _wrap_partial(block: str, html: str, kind: str) -> str:
-    return f'\n<hx-partial hx-target="#{block}" hx-swap="outerHTML">{_provenance(f"{kind} #{block}")}{html}</hx-partial>'
+def _wrap_partial(block: str, html: str) -> str:
+    return f'\n<hx-partial hx-target="#{block}" hx-swap="outerHTML">{html}</hx-partial>'
 
 
 def _render_block(template_name: str, block: str, context: dict[str, Any]) -> str:
@@ -248,11 +234,11 @@ def _render_block(template_name: str, block: str, context: dict[str, Any]) -> st
     return rendered
 
 
-def _render_partial(template: str, partial: str, context: dict[str, Any]) -> tuple[str, str]:
+def _render_partial(template: str, partial: str, context: dict[str, Any]) -> str:
     """A name containing a dot is a template file; anything else is a block."""
     if "." in partial:
-        return _flask_render_template(partial, **context), partial
-    return _render_block(template, partial, context), f"{template}#{partial}"
+        return _flask_render_template(partial, **context)
+    return _render_block(template, partial, context)
 
 
 def _response(body: str, *, kind: str, template: str | None, context: dict[str, Any] | None, status: int = 200) -> HxResponse:
@@ -296,10 +282,6 @@ class _Hx:
     @property
     def wants_fragment(self) -> bool:
         return self.request_type == "partial"
-
-    @property
-    def current_url(self) -> str | None:
-        return request.headers.get("HX-Current-URL")
 
     # response side -----------------------------------------------------
 
@@ -351,7 +333,7 @@ class _Hx:
     def removed(self) -> HxResponse:
         """The resource is gone. The control's ``hx-swap="delete"`` removes its representation."""
         _state()
-        return _response(_provenance("removed").rstrip("\n"), kind="removed", template=None, context=None)
+        return _response("", kind="removed", template=None, context=None)
 
     def text(self, value: Any) -> HxResponse:
         """An escaped text fragment, for a span or an error slot."""
@@ -360,10 +342,6 @@ class _Hx:
         return _response(escape(str(value)), kind="text", template=None, context=None)
 
     # helpers -----------------------------------------------------------
-
-    def test_headers(self, *, partial: bool = True) -> dict[str, str]:
-        """Headers htmx 4 sends, for the test client."""
-        return {REQUEST_HEADER: "true", REQUEST_TYPE_HEADER: "partial" if partial else "full", "Accept": "text/html"}
 
     def _guard_fragment(self, what: str) -> None:
         if self.is_htmx and self.wants_page:
@@ -378,8 +356,7 @@ class _Hx:
         return _response(body, kind="page", template=template, context=context)
 
     def _fragment(self, template: str, partial: str, context: dict[str, Any]) -> HxResponse:
-        body, where = _render_partial(template, partial, context)
-        return _response(_provenance(where) + body, kind="fragment", template=template, context=context)
+        return _response(_render_partial(template, partial, context), kind="fragment", template=template, context=context)
 
 
 hx = _Hx()
@@ -403,16 +380,10 @@ class HX:
         flash_template: str | None = None,
         flash_block: str = "flash",
         lint: bool | None = None,
-        lint_warnings: str = "log",
-        extensions: tuple[str, ...] = (),
-        provenance: bool | None = None,
     ):
         self.flash_template = flash_template
         self.flash_block = flash_block
         self.lint = lint
-        self.lint_warnings = lint_warnings
-        self.extensions = tuple(extensions)
-        self._provenance = provenance
         self.app = None
         if app is not None:
             self.init_app(app)
@@ -422,10 +393,6 @@ class HX:
         app.extensions["hx"] = self
         app.after_request(self._after_request)
         app.cli.add_command(_cli)
-
-    @property
-    def provenance(self) -> bool:
-        return current_app.debug if self._provenance is None else self._provenance
 
     @property
     def lint_enabled(self) -> bool:
@@ -447,7 +414,7 @@ class HX:
         status = response.status_code
         html = response.mimetype == "text/html" and not response.is_streamed and not response.direct_passthrough
 
-        if partial and 300 <= status < 400:
+        if partial and 300 <= status < 400 and status != 304:  # htmx skips the swap on a 304 by design
             if isinstance(request.routing_exception, RequestRedirect):
                 _loud(
                     HxRedirectIntoFragment,
@@ -489,7 +456,7 @@ class HX:
             return
         html = _render_block(self.flash_template, self.flash_block, {})
         _check_root_id(html, self.flash_block, f"{self.flash_template}#{self.flash_block}")
-        response.set_data(response.get_data() + _wrap_partial(self.flash_block, html, "flash").encode())
+        response.set_data(response.get_data() + _wrap_partial(self.flash_block, html).encode())
 
     def _lint(self, response) -> None:
         try:
@@ -497,13 +464,9 @@ class HX:
         except ImportError:
             return
         body = response.get_data(as_text=True)
-        findings = hxlint.lint_html(body, extensions=self.extensions)
+        findings = hxlint.lint_html(body)
         errors = [f for f in findings if f.severity == "error"]
-        warnings = [f for f in findings if f.severity == "warning"]
-        if self.lint_warnings == "raise":
-            errors += warnings
-            warnings = []
-        for f in warnings:
+        for f in (f for f in findings if f.severity == "warning"):
             current_app.logger.warning("hx lint: %s", f)
         if errors:
             _loud(HxLintError, "rendered HTML failed the htmx 4 lint:\n  " + "\n  ".join(str(f) for f in errors))

@@ -159,6 +159,85 @@ def test_map_sees_verbs_through_an_alias_of_hx(make_app):
     assert m.handlers["rows"].verbs == {"render"} and m.warnings == [] and m.errors == []
 
 
+def test_map_reports_request_headers_that_name_an_element(make_app):
+    from flask import render_template, request
+
+    from hx import hx
+
+    app = make_app()
+
+    @app.get("/search")
+    def search():
+        if request.headers.get("HX-Trigger") == "search":  # the book's idiom: htmx 4 never sends it
+            return render_template("rows.html", items=[])
+        return hx.page("index.html", items=[])
+
+    @app.get("/panel")
+    def panel():
+        if "HX-Target" in request.headers:
+            return hx.fragment("rows.html", items=[])
+        return hx.page("index.html", items=[])
+
+    @app.get("/quiet")
+    def quiet():
+        return hx.removed().trigger("done")  # an HX-Trigger response header is htmx 4's own
+
+    m = build_map(app)
+    assert m.errors == [
+        "search() reads the HX-Trigger request header, which htmx 4 does not send (the requesting element is "
+        "HX-Source), so the test is always false. To choose a page or a fragment, ask HX-Request-Type (hx.wants_page)."
+    ]
+    assert [w for w in m.warnings if "request header" in w] == [
+        "panel() reads the HX-Target request header, so it depends on an element id the template can change. "
+        "To choose a page or a fragment, ask HX-Request-Type (hx.wants_page)."
+    ]
+    assert m.handlers["search"].header_reads == {"hx-trigger"} and m.handlers["quiet"].header_reads == set()
+
+
+def test_map_reports_a_request_body_read_on_delete(make_app):
+    from flask import request
+
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}<form>
+            <button hx-delete="{{ url_for('bulk') }}" hx-include="closest form" hx-target="tbody">bulk</button>
+            <button hx-delete="{{ url_for('either') }}" hx-target="body">either</button>
+            </form>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.delete("/bulk")
+    def bulk():
+        for i in request.form.getlist("id"):  # always empty: DELETE values are query parameters
+            pass
+        return hx.render("index.html", partial="rows", items=[])
+
+    @app.route("/either", methods=["POST", "DELETE"])
+    def either():
+        if request.method == "POST":
+            request.form.get("name")
+            return hx.redirect("/")
+        return hx.redirect("/")
+
+    @app.delete("/unreached")
+    def unreached():
+        request.form.getlist("id")  # no control resolves here, and no verb: the route is DELETE-only
+        return ""
+
+    m = build_map(app)
+    assert m.errors == [
+        'bulk() reads request.form on DELETE, but htmx 4 sends DELETE values as query parameters, so it is always '
+        'empty; read the query string (request.args / request.GET), with hx-include="closest form" on the control '
+        "if the values are in a form.",
+        "unreached() reads request.form on DELETE, but htmx 4 sends DELETE values as query parameters, so it is "
+        'always empty; read the query string (request.args / request.GET), with hx-include="closest form" on the '
+        "control if the values are in a form.",
+    ]
+    assert m.handlers["either"].body_reads_for("DELETE") == set() and m.handlers["either"].body_reads_for("POST") == {"request.form"}
+    assert not any("sends no form values" in w for w in m.warnings)
+
+
 def test_by_template_says_who_renders_each_block(app):
     out = io.StringIO()
     assert print_map(app, out=out, by_template=True) == 0

@@ -14,7 +14,8 @@ controls in the templates that point at it, each classified as ``full`` or
 present, or the element is boosted); the events it announces and the elements
 that listen. A partial control reaching a page-only handler, a full control
 reaching a fragment-only one, a control reaching a handler that calls no verb,
-and a handler that retargets or reswaps are all reported at scan time.
+a handler that retargets or reswaps, one that reads an element header, and one
+that reads ``request.form`` on DELETE are all reported at scan time.
 """
 
 from __future__ import annotations
@@ -39,7 +40,8 @@ _JINJA_EXPR = re.compile(r"\{\{.*?\}\}", re.S)
 _JINJA_TAG = re.compile(r"\{%.*?%\}|\{#.*?#\}", re.S)
 
 FLASH_NAMES = ("flash",)
-VALUE_ATTRS = ("args", "form", "values", "json", "get_json")
+VALUE_ATTRS = ("args", "form", "files", "values", "json", "get_json")
+BODY_ATTRS = ("form", "files")
 
 
 # ------------------------------------------------------------------ templates
@@ -118,6 +120,7 @@ def _scan_handlers(app) -> dict[str, Handler]:
         h = handlers.setdefault(rule.endpoint, Handler(rule.endpoint))
         methods = sorted((rule.methods or set()) - {"HEAD", "OPTIONS"})
         h.rules.append(f"{','.join(methods)} {rule.rule}")
+        h.methods.update(methods)
     names_by_module: dict[Any, dict[str, str]] = {}
     for endpoint, h in handlers.items():
         func = app.view_functions.get(endpoint)
@@ -131,7 +134,7 @@ def _scan_handlers(app) -> dict[str, Handler]:
         module = inspect.getmodule(func)
         if module not in names_by_module:
             names_by_module[module] = _verb_names(module)
-        mapcore.scan_function(h, tree, names_by_module[module], flash_names=FLASH_NAMES, value_attrs=VALUE_ATTRS)
+        mapcore.scan_function(h, tree, names_by_module[module], flash_names=FLASH_NAMES, value_attrs=VALUE_ATTRS, body_attrs=BODY_ATTRS)
     return handlers
 
 

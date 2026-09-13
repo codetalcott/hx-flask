@@ -14,9 +14,8 @@ writing code against it; README.md has the reasoning.
     HX(app, flash_template="layout.html")   # Vary, the guards, the flash bridge, the lint
 
 `flash_template` is the template whose `flash` block renders pending messages;
-that block's root element must be `id="flash"`. Other options: `lint=True|False`
-(default: on under `app.testing` or `app.debug`), `lint_warnings="raise"`,
-`extensions=("hx-live",)`, `provenance=True` (HTML comments naming the handler).
+that block's root element must be `id="flash"`. The other option is
+`lint=True|False` (default: on under `app.testing` or `app.debug`).
 
 The layout loads htmx 4 and, because attributes reach descendants only with
 `:inherited` in htmx 4, boosts like this:
@@ -39,14 +38,17 @@ The layout loads htmx 4 and, because attributes reach descendants only with
 
 - Never `return redirect(...)`, `return ""`, `return "", 204`, or
   `render_template(...)` to an htmx request. Say what happened with a verb.
-- Never read `HX-Source` or `HX-Target`. Ask `hx.wants_page`.
+- Never read `HX-Source` or `HX-Target`, and never `HX-Trigger`, which htmx 4
+  does not send as a request header. Ask `hx.wants_page`.
 - Announce facts; do not update regions. `.trigger("x")` with
   `hx-trigger="x from:body"` on the element that cares; `.partial()` only when
   the handler already holds the data. Do not put `hx-swap-oob` in templates.
 - The template predicts the DOM effect. `.retarget()` and `.reswap()` break
   that; use them only with a comment saying why.
 - The template says whether a control navigates: `hx-push-url="true"` on the
-  control. `.push_url()` only for a canonical URL that differs from the request.
+  control. htmx 4 pushes the final URL after a 303.
+- A DELETE handler reads `request.args`, never `request.form`; a control inside
+  a form says `hx-include="closest form"`.
 - Every control says `url_for(...)`. Every name is literal: `partial="rows"` is
   `{% block rows %}` in that template.
 
@@ -64,7 +66,7 @@ The layout loads htmx 4 and, because attributes reach descendants only with
 
     response.trigger("contacts-changed")            # HX-Trigger, JSON, always with a target (body)
     response.partial("count")                       # appends <hx-partial hx-target="#count"> from that block
-    response.push_url(url) / .replace_url(url) / .with_status(code)
+    response.with_status(code)
     response.retarget(selector) / .reswap(spec)     # escape hatches; flask hx map reports them
 
 A `partial=` containing a dot (`rows.html`) is a separate template file;
@@ -103,7 +105,7 @@ Every error names the handler and says what to change. These raise always:
 `HxProtocolError` (htmx without `HX-Request-Type`), `HxNotInitialized`, and
 `HxError` for `hx.render` with no `partial=`. These raise under `app.testing`
 and log otherwise: `HxFragmentIntoPage`, `HxRedirectIntoFragment` from the
-after-request guard (a plain 3xx or Werkzeug's slash 308), `HxNoSwap` (a 204),
+after-request guard (a 3xx other than 304, or Werkzeug's slash 308), `HxNoSwap` (a 204),
 `HxBareResponse` (a response built without a verb), `HxFlashUnconfigured`,
 `HxLintError`.
 
@@ -112,7 +114,6 @@ after-request guard (a plain 3xx or Werkzeug's slash 308), `HxNoSwap` (a 204),
     PARTIAL = {"HX-Request": "true", "HX-Request-Type": "partial"}   # a control targeting an element
     FULL = {"HX-Request": "true", "HX-Request-Type": "full"}         # a boosted link or hx-target="body"
     client.get("/contacts?q=a", headers=PARTIAL)
-    hx.test_headers(partial=True)                                    # the same dict
 
 Under `app.testing` every HTML response is linted and every guard raises.
 
@@ -122,12 +123,18 @@ Under `app.testing` every HTML response is linted and every guard raises.
     flask --app app hx map              # every control -> its handler, full or partial, checked
     flask --app app hx map --by-template   # the same map keyed by template#block: who renders it
 
+The lint errors on htmx 2 vocabulary and on a plain `hx-boost` anywhere but
+`<a>`/`<form>` (`boost-not-inherited`: `<body hx-boost="true">` boosts nothing);
+it warns on implicit inheritance of other attributes.
+
 The map errors on a partial control reaching a page-only handler, a full control
-reaching a fragment-only one, and a URL that resolves to nothing. It warns on a
-control reaching a handler that calls no hx verb, a handler that calls
-`.retarget()` or `.reswap()`, a DELETE that reads form values without
-`hx-include="closest form"`, and an event announced or listened for on only one
-side. `--by-template` inverts it: every template and block a handler names, the
+reaching a fragment-only one, a URL that resolves to nothing, a handler that
+reads the `HX-Trigger` request header, and a handler that reads `request.form`
+on DELETE. The last two need no hx verb in the handler. It warns on a control
+reaching a handler that calls no hx verb, a handler that calls `.retarget()` or
+`.reswap()`, a handler that reads `HX-Target` or `HX-Source`, a DELETE control
+without `hx-include="closest form"` whose handler reads request values, and an
+event announced or listened for on only one side. `--by-template` inverts it: every template and block a handler names, the
 handlers that render it, and the controls that reach them, for when you are
 editing a block and need to know who serves it.
 
@@ -139,4 +146,5 @@ editing a block and need to know who serves it.
 - `HX-Trigger` fires on the source element, or `document` if the swap removed it; so `.trigger()` always sets a target.
 - Attributes reach descendants only with `:inherited`; `<body hx-boost="true">` boosts nothing.
 - `hx-delete` sends query parameters and excludes the enclosing form unless asked with `hx-include`.
+- Requests carry `HX-Source` (the element) and `HX-Target`; there is no `HX-Trigger` request header.
 - Only 204 and 304 skip the swap. A 422 body swaps with no client configuration.
