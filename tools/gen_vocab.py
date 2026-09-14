@@ -53,6 +53,23 @@ def extension_attributes(core: set[str]) -> dict[str, list[str]]:
     return result
 
 
+def extension_names() -> dict[str, str]:
+    """Every name an extension answers to -> its file name. htmx registers some under the file name
+    (hx-live) and some under a short name (sse, ws, upsert), and ``htmx.config.extensions`` wants the
+    registered one; both mean the same extension."""
+    names = {}
+    for f in sorted((SRC / "src/ext").glob("*.js")):
+        m = re.search(r"""registerExtension\(\s*['"]([\w-]+)['"]""", f.read_text())
+        if not m:
+            sys.exit(f"gen_vocab: {f.name} registers no extension")
+        names.setdefault(f.stem, f.stem)
+        names.setdefault(m.group(1), f.stem)
+    for short, stem in (("sse", "hx-sse"), ("ws", "hx-ws")):
+        if names.get(short) != stem:
+            sys.exit(f"gen_vocab: {stem}.js no longer registers as {short}")
+    return dict(sorted(names.items()))
+
+
 def removed_attributes() -> dict[str, str]:
     """Rename tables in both skill files; a name that is core in htmx 4 is not removed."""
     core = set(core_attributes())
@@ -154,6 +171,7 @@ def htmx2_event_names() -> dict[str, str]:
 def main() -> None:
     core = core_attributes()
     ext = extension_attributes(set(core))
+    ext_names = extension_names()
     removed = removed_attributes()
     styles, aliases, ext_styles = swap_styles()
     smods = swap_modifiers()
@@ -176,6 +194,9 @@ CORE_ATTRIBUTES = {lit(core)}
 
 # docs/extensions/*.md, the attributes each extension adds
 EXTENSION_ATTRIBUTES = {lit(ext)}
+
+# src/ext/*.js: every name an extension answers to (file name, or the name it registers) -> file name
+EXTENSION_NAMES = {lit(ext_names)}
 
 # Attribute families: any name starting with one of these is valid syntax.
 FAMILIES = ("hx-on", "hx-status:", "hx-live", "hx-sse", "hx-ws", "hx-multipart")
@@ -207,7 +228,7 @@ SPECIAL_TRIGGERS = ("load", "every", "intersect", "revealed")
 HTMX2_EVENT_NAMES = {lit(events)}
 '''
     OUT.write_text(body)
-    print(f"wrote {OUT}: {len(core)} core attrs, {sum(len(v) for v in ext.values())} extension attrs in {len(ext)} extensions, "
+    print(f"wrote {OUT}: {len(core)} core attrs, {sum(len(v) for v in ext.values())} extension attrs in {len(ext)} extensions, {len(ext_names)} extension names, "
           f"{len(removed)} removed, {len(styles)} swap styles, {len(smods)} swap modifiers, {len(tmods)} trigger modifiers, {len(events)} event renames")
 
 

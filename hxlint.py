@@ -231,7 +231,8 @@ class _Linter:
         self.source_mode = source_mode
         self.file = file
         self.findings: list[Finding] = []
-        loaded = set(extensions)
+        # htmx's registered name (sse) or the file name (hx-sse): the rules below speak file names.
+        loaded = {V.EXTENSION_NAMES.get(e, e) for e in extensions}
         for src in scripts:
             for ext in V.EXTENSION_ATTRIBUTES:
                 short = ext.split("-", 1)[-1]

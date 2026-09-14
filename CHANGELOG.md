@@ -72,6 +72,11 @@
 
 - A 304 answering a partial request is no longer reported as a redirect that
   fetch would follow; htmx skips the swap on a 304 by design.
+- `hxlint.lint_html(extensions=)` takes the name htmx registers an extension
+  under (`sse`, `ws`, `upsert`, the names `htmx.config.extensions` wants) as
+  well as its file name (`hx-sse`). The short name used to match nothing, so
+  every extension attribute on the page warned `extension-not-loaded`.
+  `hx_vocab.EXTENSION_NAMES` is generated from `src/ext/*.js`.
 
 ### Removed
 

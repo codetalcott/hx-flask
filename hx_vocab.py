@@ -11,6 +11,9 @@ CORE_ATTRIBUTES = ['hx-get', 'hx-post', 'hx-put', 'hx-patch', 'hx-delete', 'hx-q
 # docs/extensions/*.md, the attributes each extension adds
 EXTENSION_ATTRIBUTES = {'hx-multipart': ['hx-multipart', 'hx-multipart:close', 'hx-multipart:connect'], 'hx-sse': ['hx-sse', 'hx-sse:close', 'hx-sse:connect'], 'hx-ws': ['hx-ws', 'hx-ws-connect', 'hx-ws-send', 'hx-ws:connect', 'hx-ws:send'], 'hx-head': ['hx-head'], 'hx-live': ['hx-live', 'hx-live:attr', 'hx-live:hidden'], 'hx-targets': ['hx-targets', 'hx-targets:inherited'], 'hx-ptag': ['hx-ptag'], 'hx-browser-indicator': ['hx-browser-indicator'], 'hx-history-cache': ['hx-history-cache'], 'hx-csp': ['hx-csp'], 'hx-prompt': ['hx-prompt']}
 
+# src/ext/*.js: every name an extension answers to (file name, or the name it registers) -> file name
+EXTENSION_NAMES = {'alpine-compat': 'hx-alpine-compat', 'browser-indicator': 'hx-browser-indicator', 'compat': 'htmx-2-compat', 'download': 'hx-download', 'history-cache': 'hx-history-cache', 'htmx-2-compat': 'htmx-2-compat', 'hx-alpine-compat': 'hx-alpine-compat', 'hx-browser-indicator': 'hx-browser-indicator', 'hx-compat': 'hx-compat', 'hx-csp': 'hx-csp', 'hx-download': 'hx-download', 'hx-head': 'hx-head', 'hx-history-cache': 'hx-history-cache', 'hx-live': 'hx-live', 'hx-multipart': 'hx-multipart', 'hx-pending': 'hx-pending', 'hx-preload': 'hx-preload', 'hx-prompt': 'hx-prompt', 'hx-ptag': 'hx-ptag', 'hx-sse': 'hx-sse', 'hx-targets': 'hx-targets', 'hx-upsert': 'hx-upsert', 'hx-ws': 'hx-ws', 'preload': 'hx-preload', 'ptag': 'hx-ptag', 'sse': 'hx-sse', 'upsert': 'hx-upsert', 'ws': 'hx-ws'}
+
 # Attribute families: any name starting with one of these is valid syntax.
 FAMILIES = ("hx-on", "hx-status:", "hx-live", "hx-sse", "hx-ws", "hx-multipart")
 
