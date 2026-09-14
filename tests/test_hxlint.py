@@ -175,6 +175,14 @@ def test_extension_attributes_need_their_script_when_the_page_is_known():
     assert lint_html('<div hx-live="x"></div>', extensions=("hx-sse",)) != []
 
 
+def test_extensions_answer_to_the_name_htmx_registers_as_well_as_the_file_name():
+    # hx-sse.js registers 'sse', the name htmx.config.extensions takes; hx-live.js registers 'hx-live'
+    for name in ("sse", "hx-sse"):
+        assert lint_html('<div hx-sse:connect="/events"></div>', extensions=(name,)) == [], name
+    assert lint_html('<div hx-swap="upsert"></div>', extensions=("upsert",)) == []
+    assert rules(lint_html('<div hx-live="x"></div>', extensions=("sse",))) == ["extension-not-loaded"]
+
+
 # ----------------------------------------------------------- template source
 
 
