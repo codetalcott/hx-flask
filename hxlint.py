@@ -3,12 +3,17 @@ hxlint.py -- lint HTML for the htmx 4 vocabulary.
 
 Coding agents learned htmx 1 and 2 and will write it into an htmx 4 app:
 implicit inheritance, ``hx-ext``, ``hx-vars``, camelCase event names, the old
-``show:#x:top`` syntax. Every one of those is silent in the browser. This
-module makes them loud, in three places:
+``show:#x:top`` syntax, ``event.detail.xhr``. Every one of those is silent in
+the browser. This module makes them loud, in three places:
 
 - at test time, on every HTML response (``HX(app)`` wires it under ``app.testing``);
 - at debug time, as a warning on the first render;
-- statically, on template source: ``flask hx lint templates/``.
+- statically, on template source and scripts: ``flask hx lint templates/ static/js/``.
+
+Event names are checked wherever a listener can name one: ``hx-on`` and
+``hx-trigger``, quoted strings in JavaScript (``<script>``, ``.js`` files,
+``onclick``, Alpine's ``@click``), hyperscript's ``_``, and Alpine's
+``x-on:htmx:...``.
 
 The vocabulary is generated from htmx's own files (``hx_vocab.py``), and
 ``hx-trigger`` / ``hx-swap`` values are parsed with a port of htmx's HCON
@@ -29,7 +34,7 @@ from typing import Iterable
 
 import hx_vocab as V
 
-__all__ = ["Finding", "lint_html", "lint_source", "lint_paths", "hcon_parse", "hcon_split", "parse_trigger_specs", "parse_swap_spec", "parse", "Node"]
+__all__ = ["Finding", "lint_html", "lint_source", "lint_script", "lint_paths", "hcon_parse", "hcon_split", "parse_trigger_specs", "parse_swap_spec", "parse", "Node"]
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 JINJA = "__JINJA__"
@@ -37,6 +42,16 @@ SELECTOR_HEADS = {"closest", "next", "previous", "find", "findAll", "global"}
 # htmx 2 event names, lowercased without hyphens: attribute names reach the lint lowercased, and htmx 2 also
 # fired each event in kebab-case, the form its docs used (hx-on::after-request).
 _HTMX2_EVENTS = {k.lower(): (k, v) for k, v in V.HTMX2_EVENT_NAMES.items()}
+# In JavaScript an event name is a string literal; in hyperscript it is a bare word.
+_JS_EVENT = re.compile(r"""(["'`])(?P<event>htmx:[A-Za-z][\w:-]*)\1""")
+_HS_EVENT = re.compile(r"(?<![\w:.-])(?P<event>htmx:[A-Za-z][\w:-]*)")
+_DETAIL_XHR = re.compile(r"""\bdetail\s*(?:\?\.|\.)\s*xhr\b|\bdetail\s*\[\s*["']xhr["']\s*\]""")
+HYPERSCRIPT_ATTRS = ("_", "script", "data-script")
+# Where the documented rename does not do what the old listener did (observed in a browser).
+_EVENT_NOTES = {
+    "htmx:load": " It fires once per element that has htmx attributes, not on the new content; to run code on "
+    "each piece of new content (the body at load, the swapped-in elements after), call htmx.onLoad(fn).",
+}
 
 
 # ---------------------------------------------------------------------- HCON
@@ -115,7 +130,7 @@ def parse_swap_spec(swap: str, default: str = "innerHTML") -> dict:
 
 
 class Node:
-    __slots__ = ("tag", "attrs", "children", "parent", "line")
+    __slots__ = ("tag", "attrs", "children", "parent", "line", "text", "text_line")
 
     def __init__(self, tag: str, attrs: dict[str, str | None], parent: Node | None, line: int):
         self.tag = tag
@@ -123,6 +138,8 @@ class Node:
         self.children: list[Node] = []
         self.parent = parent
         self.line = line
+        self.text = ""  # a <script>'s source; other elements' text is not kept
+        self.text_line = line
 
     def ancestors(self) -> Iterable[Node]:
         n = self.parent
@@ -176,8 +193,13 @@ class _TreeBuilder(HTMLParser):
             src = node.attrs.get("src")
             if src:
                 self.scripts.append(src)
+            node.text_line = node.line + (self.get_starttag_text() or "").count("\n")
         if tag not in VOID:
             self.stack.append(node)
+
+    def handle_data(self, data):
+        if self.stack[-1].tag == "script":
+            self.stack[-1].text += data
 
     def handle_startendtag(self, tag, attrs):
         node = Node(tag, {k: v for k, v in attrs}, self.stack[-1], self.getpos()[0])
@@ -220,6 +242,11 @@ class Finding:
 
 
 def _suggest(name: str, options: Iterable[str]) -> str:
+    # Compare what follows a shared hx- prefix: whole names make hx-取得 "close" to hx-ws.
+    if name.startswith("hx-"):
+        by_rest = {o[3:]: o for o in options if o.startswith("hx-")}
+        close = difflib.get_close_matches(name[3:], list(by_rest), n=1, cutoff=0.6)
+        return f" (did you mean {by_rest[close[0]]}?)" if close else ""
     close = difflib.get_close_matches(name, list(options), n=1, cutoff=0.6)
     return f" (did you mean {close[0]}?)" if close else ""
 
@@ -247,12 +274,16 @@ class _Linter:
                 self.ids.setdefault(n.attrs["id"], []).append(n)
         self.boosting = any(n.attrs.get("hx-boost:inherited") not in (None, "false") for n in self.nodes)
 
-    def add(self, severity: str, rule: str, node: Node | None, message: str) -> None:
-        self.findings.append(Finding(severity, rule, message, node.describe() if node else "", node.line if node else None, self.file))
+    def add(self, severity: str, rule: str, node: Node | None, message: str, line: int | None = None) -> None:
+        line = line if line is not None else node.line if node else None
+        self.findings.append(Finding(severity, rule, message, node.describe() if node else "", line, self.file))
 
     def run(self) -> list[Finding]:
         for node in self.nodes:
+            if node.tag == "script" and node.text and not node.attrs.get("src"):
+                self.script(node, node.text, node.text_line, hyperscript=node.attrs.get("type") == "text/hyperscript")
             for name, value in list(node.attrs.items()):
+                self.script_attribute(node, name, value)
                 base = name[5:] if name.startswith("data-hx-") else name
                 if not base.startswith("hx-"):
                     continue
@@ -364,18 +395,49 @@ class _Linter:
         for event in events:
             self.event_name(node, event)
 
-    def event_name(self, node: Node, event: str) -> None:
-        """An event listened for in ``hx-on`` or ``hx-trigger``: htmx 4 fires none of htmx 2's names."""
+    def event_name(self, node: Node | None, event: str, line: int | None = None) -> None:
+        """An event named by a listener: htmx 4 fires none of htmx 2's names."""
         event = event.split("[", 1)[0]
         found = _HTMX2_EVENTS.get(event.lower().replace("-", ""))
-        if found and "-" in event:
+        if found:
             old, new = found
-            self.add("error", "htmx2-event-name", node, f"{event} is htmx 2's kebab-case name for {old}; htmx 4 fires only {new}, so this listener never runs.")
-        elif found:
-            old, new = found
-            self.add("error", "htmx2-event-name", node, f"{old} is the htmx 2 event name; htmx 4 calls it {new}.")
+            instead = "fires no replacement" if new.startswith("(") else f"fires only {new}"
+            if "-" in event:
+                message = f"{event} is htmx 2's kebab-case name for {old}; htmx 4 {instead}, so this listener never runs."
+            elif new.startswith("("):
+                message = f"{old} is an htmx 2 event that htmx 4 no longer fires."
+            else:
+                message = f"{old} is the htmx 2 event name; htmx 4 calls it {new}."
+            self.add("error", "htmx2-event-name", node, message + _EVENT_NOTES.get(old, ""), line)
         elif re.match(r"^htmx:[a-z]+[A-Z]", event):
-            self.add("error", "htmx2-event-name", node, f"{event} looks like an htmx 2 camelCase event; htmx 4 names are colon-separated (htmx:after:swap).")
+            self.add("error", "htmx2-event-name", node, f"{event} looks like an htmx 2 camelCase event; htmx 4 names are colon-separated (htmx:after:swap).", line)
+
+    def script_attribute(self, node: Node, name: str, value: str | None) -> None:
+        """Alpine's ``x-on:htmx:...`` / ``@htmx:...`` names an event; any value may hold script."""
+        if name.startswith(("x-on:htmx:", "@htmx:")):
+            self.event_name(node, name.split(":", 1)[1].split(".", 1)[0] if name.startswith("x-on:") else name[1:].split(".", 1)[0])
+        if value:
+            self.script(node, value, None, hyperscript=name in HYPERSCRIPT_ATTRS)
+
+    def script(self, node: Node | None, text: str, first_line: int | None, hyperscript: bool = False) -> None:
+        """
+        JavaScript names an event in a string literal, hyperscript as a bare word;
+        either can read ``detail.xhr``. ``first_line`` is where ``text`` starts, or
+        None for an attribute value, whose findings carry the element's line.
+        """
+
+        def line(m: re.Match) -> int | None:
+            return None if first_line is None else first_line + text.count("\n", 0, m.start())
+
+        for m in (_HS_EVENT if hyperscript else _JS_EVENT).finditer(text):
+            self.event_name(node, m.group("event"), line(m))
+        for m in _DETAIL_XHR.finditer(text):
+            self.add(
+                "error", "htmx2-detail-xhr", node,
+                "event.detail.xhr is htmx 2's XMLHttpRequest; htmx 4 uses fetch(), so detail.xhr is undefined and "
+                "reading it throws. The request is event.detail.ctx: ctx.response.status, ctx.response.headers, ctx.text.",
+                line(m),
+            )
 
     def inheritance(self, node: Node) -> None:
         if node.tag == "hx-partial":
@@ -434,15 +496,32 @@ def lint_source(text: str, file: str | None = None, extensions: Iterable[str] = 
     return lint_html(text, extensions=extensions, is_document=False, file=file, source_mode=True)
 
 
+def lint_script(text: str, file: str | None = None) -> list[Finding]:
+    """A JavaScript file: htmx 2 event names in string literals, and ``detail.xhr``."""
+    linter = _Linter(Node("#root", {}, None, 0), [], (), False, True, file)
+    linter.script(None, text, 1)
+    return linter.findings
+
+
+def _htmx_own(path: pathlib.Path) -> bool:
+    """htmx, or one of its extensions (``htmx-4.0.0.min.js``, ``hx-sse.js``): its source names the old events on purpose."""
+    stem = re.sub(r"([.-]\d[\w.]*)?(\.min)?$", "", path.name[: -len(".js")])
+    return stem == "htmx" or stem in V.EXTENSION_NAMES.values()
+
+
 def lint_paths(paths: Iterable[str], extensions: Iterable[str] = (), out=None) -> int:
     out = out or sys.stdout
     files: list[pathlib.Path] = []
     for p in paths:
         path = pathlib.Path(p)
-        files += sorted(path.rglob("*.html")) if path.is_dir() else [path]
+        if path.is_dir():
+            files += sorted(path.rglob("*.html")) + sorted(f for f in path.rglob("*.js") if not _htmx_own(f))
+        else:
+            files.append(path)
     errors = 0
     for f in files:
-        for finding in lint_source(f.read_text(), file=str(f), extensions=extensions):
+        lint = lint_script if f.suffix in (".js", ".mjs") else lambda text, file: lint_source(text, file=file, extensions=extensions)
+        for finding in lint(f.read_text(), file=str(f)):
             print(finding, file=out)
             errors += finding.severity == "error"
     print(f"hx lint: {len(files)} files, {errors} errors", file=out)

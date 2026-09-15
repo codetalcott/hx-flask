@@ -11,11 +11,13 @@ report are ``mapcore.py``, shared with dj-hx.
 For each endpoint: the verbs it calls and the template and block it names; the
 controls in the templates that point at it, each classified as ``full`` or
 ``partial`` by htmx 4's own rule (the target is ``body``, ``hx-select`` is
-present, or the element is boosted); the events it announces and the elements
-that listen. A partial control reaching a page-only handler, a full control
-reaching a fragment-only one, a control reaching a handler that calls no verb,
-a handler that retargets or reswaps, one that reads an element header, and one
-that reads ``request.form`` on DELETE are all reported at scan time.
+present, or the element is boosted), ``htmx.ajax()`` calls in scripts among
+them; the ``fetch()`` calls that reach it; the events it announces and the
+elements that listen. A partial control reaching a page-only handler, a full
+control reaching a fragment-only one, a control reaching a handler that calls no
+verb or returns JSON, a handler that retargets or reswaps, one that reads an
+element header, and one that reads ``request.form`` on DELETE are all reported
+at scan time.
 """
 
 from __future__ import annotations

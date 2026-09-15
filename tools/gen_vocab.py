@@ -150,17 +150,27 @@ def trigger_modifiers() -> list[str]:
 
 
 def htmx2_event_names() -> dict[str, str]:
-    """The rename table in whats-new (new names are links), plus every camelCase
-    name the htmx-2-compat extension re-fires, so nothing is missed."""
+    """The Events table in whats-new (new names are links), then the find-and-replace
+    table in the upgrade skill, then every name the htmx-2-compat extension re-fires,
+    so nothing is missed. Every row is an htmx 2 name, lowercase ones included
+    (htmx:load, htmx:xhr:progress)."""
     text = must(SRC / "docs/whats-new-in-htmx-4.md")
+    skill = must(SRC / "docs/skills/htmx-upgrade-from-htmx2.md")
     compat = must(SRC / "src/ext/htmx-2-compat.js")
     row = re.compile(r"^\|\s*`(htmx:[A-Za-z:]+)`\s*\|\s*(?:\[`([^`]+)`\]\([^)]*\)|`([^`]+)`|([^|]*?))\s*\|")
+
+    def section(doc: str, heading: str) -> str:
+        if heading not in doc:
+            sys.exit(f"gen_vocab: {heading!r} was not found")
+        return re.split(r"\n#{2,3} ", doc.split(heading, 1)[1], maxsplit=1)[0]
+
     renames = {}
-    for line in text.splitlines():
-        m = row.match(line)
-        if m and re.search(r"[A-Z]", m.group(1)):
-            new = (m.group(2) or m.group(3) or m.group(4) or "").strip()
-            renames[m.group(1)] = new if new and new not in ("—", "-") else "(removed)"
+    for source in (section(text, "### Events"), section(skill, "## Step 5: Update Event Listeners")):
+        for line in source.splitlines():
+            m = row.match(line)
+            if m:
+                new = (m.group(2) or m.group(3) or m.group(4) or "").strip()
+                renames.setdefault(m.group(1), new if new and new not in ("—", "-") else "(removed)")
     for name in re.findall(r'maybeRetriggerEvent\(elt, "(htmx:[A-Za-z]+)"', compat):
         renames.setdefault(name, "(see htmx-2-compat.js)")
     if len(renames) < 10:
@@ -224,7 +234,8 @@ SWAP_MODIFIERS = {lit(smods)}
 TRIGGER_MODIFIERS = {lit(tmods)}
 SPECIAL_TRIGGERS = ("load", "every", "intersect", "revealed")
 
-# docs/whats-new-in-htmx-4.md: htmx 2 camelCase event names and their htmx 4 form
+# docs/whats-new-in-htmx-4.md and docs/skills/htmx-upgrade-from-htmx2.md: htmx 2 event names
+# and their htmx 4 form, "(removed)" for those htmx 4 no longer fires
 HTMX2_EVENT_NAMES = {lit(events)}
 '''
     OUT.write_text(body)

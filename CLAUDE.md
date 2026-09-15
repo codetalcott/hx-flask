@@ -36,7 +36,7 @@ uv venv && uv pip install flask pytest playwright          # one-time setup
 .venv/bin/python -m pytest tests/test_hx.py -k negotiates  # one test
 .venv/bin/python -m playwright install chromium            # once, for tests/test_browser.py
 
-.venv/bin/flask --app app hx lint templates                # static htmx 4 lint of template source
+.venv/bin/flask --app app hx lint templates static/js      # static htmx 4 lint of template source and scripts
 .venv/bin/flask --app app hx map                           # every control -> its handler, checked; exit 1 on errors
 HTMX_SRC=~/path/to/htmx-4.0.0 .venv/bin/python tools/gen_vocab.py   # regenerate hx_vocab.py
 ```
@@ -66,7 +66,9 @@ configured. CI runs the suite, the lint and the map on Python 3.10 and 3.13.
 - **`mapcore.py` is the framework-neutral map engine**; new map logic belongs there. `hxmap.py` is the
   Flask adapter: `url_for` rewritten to a `URLFOR:` marker, resolution through `app.url_map`, `inspect`
   plus `ast` per endpoint. Verb and body reads are scoped by `if request.method == ...` branches.
-  Header-read and DELETE body-read checks run whether or not the handler calls a verb.
+  Header-read, DELETE body-read and JSON-return checks run whether or not the handler calls a verb.
+  `htmx.ajax()` calls in scripts and attributes are controls; `fetch()` calls are listed, not checked.
+  A finding on an attribute carries its element's line; only `<script>` bodies and `.js` files report per line.
 - `retarget()` / `reswap()` are escape hatches the map reports. Do not use them in the port.
 
 The port keeps everything line-for-line comparable with `ch10-full` except where htmx 4 forces a change

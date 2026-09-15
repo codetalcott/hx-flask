@@ -20,8 +20,15 @@ templates no longer predict the DOM effect.
 
 The rest need no verb, so they hold for code that never adopted one: a handler
 that reads the ``HX-Trigger`` request header htmx 4 no longer sends (an error)
-or ``HX-Target`` / ``HX-Source`` (a warning), and a handler that reads the
-request body on DELETE, which htmx 4 sends as query parameters (an error).
+or ``HX-Target`` / ``HX-Source`` (a warning), a handler that reads the
+request body on DELETE, which htmx 4 sends as query parameters (an error), and
+a control that reaches a handler returning JSON, which htmx swaps as HTML.
+
+A control is an ``hx-*`` attribute, a boosted link or form, or a literal
+``htmx.ajax(verb, url, {target})`` call in a script or an attribute such as
+Alpine's ``@click``. A ``fetch()`` to a handler is listed under it but not
+checked, except where the handler asks ``HX-Request-Type``, which fetch never
+sends.
 """
 
 from __future__ import annotations
@@ -51,6 +58,8 @@ __all__ = [
     "PAGE_VERBS",
     "FRAGMENT_VERBS",
     "LEAVING_VERBS",
+    "NEGOTIATING_VERBS",
+    "JSON_CALLS",
     "VERBS",
     "ESCAPE_HATCHES",
 ]
@@ -69,6 +78,10 @@ DOM_EVENTS = {
 VERBS = {"render", "page", "fragment", "invalid", "redirect", "removed", "text", "navigate"}
 PAGE_VERBS = {"page"}
 FRAGMENT_VERBS = {"fragment", "text", "removed"}
+# Choose page or fragment from HX-Request-Type, which a plain fetch() never sends.
+NEGOTIATING_VERBS = {"render", "invalid"}
+# Calls whose return value is JSON; a returned dict or list is JSON as well (Flask).
+JSON_CALLS = ("jsonify", "JsonResponse")
 # Leave the page whatever the control targets, so they say nothing about the shape the handler answers with.
 LEAVING_VERBS = {"navigate"}
 ESCAPE_HATCHES = ("retarget", "reswap")
@@ -96,6 +109,7 @@ class Control:
     boosted: bool = False
     include: bool = False
     problem: str | None = None
+    via: str = ""  # "" for an attribute or a boosted element; "htmx.ajax" or "fetch" for a call in script
 
 
 @dataclass
@@ -120,6 +134,8 @@ class Handler:
     value_reads: dict[str, set[str]] = field(default_factory=dict)  # method scope -> request.args, request.GET, ...
     body_reads: dict[str, set[str]] = field(default_factory=dict)  # method scope -> request.form, request.POST, ...
     header_reads: set[str] = field(default_factory=set)  # hx-trigger, hx-target, ... as read from the request
+    json_returns: dict[str, set[str]] = field(default_factory=dict)  # method scope -> "jsonify(...)", "a dict", ...
+    other_returns: dict[str, set[str]] = field(default_factory=dict)  # method scope -> {"return"}: any other return
     methods: set[str] = field(default_factory=set)  # declared by the route; empty when the adapter cannot know
     flashes: bool = False
     controls: list[Control] = field(default_factory=list)
@@ -170,12 +186,16 @@ def scan_templates(
     listeners: list[Listener] = []
     for name, root in trees.items():
         for node in root.descendants():
-            for attr, value in node.attrs.items():
-                if attr == "hx-on" or attr.startswith("hx-on:"):
-                    script_names.update(_NAME.findall(value or ""))
             control = _control_for(name, node, boosting, resolve)
             if control:
                 controls.append(control)
+            for attr, value in node.attrs.items():
+                if attr == "hx-on" or attr.startswith("hx-on:"):
+                    script_names.update(_NAME.findall(value or ""))
+                if value:
+                    controls += _script_controls(name, node, value, None, resolve)
+            if node.tag == "script" and node.text and not node.attrs.get("src"):
+                controls += _script_controls(name, node, node.text, node.text_line, resolve)
             listeners += _listeners_for(name, node)
     return controls, listeners, script_names, boosting
 
@@ -222,6 +242,128 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
     )
 
 
+_AJAX = re.compile(r"\bhtmx\.ajax\s*\(")
+_FETCH = re.compile(r"(?<![\w.])(?:window\.)?fetch\s*\(")
+
+
+def _script_controls(file: str, node: Node, text: str, first_line: int | None, resolve) -> list[Control]:
+    """
+    ``htmx.ajax(...)`` and ``fetch(...)`` calls with a literal URL, in a script's
+    source (``first_line`` is where it starts) or an attribute value (None: the
+    element's line, as for every attribute).
+    """
+    if "htmx.ajax" not in text and "fetch" not in text:
+        return []
+    calls = sorted([(m, _ajax_control) for m in _AJAX.finditer(text)] + [(m, _fetch_control) for m in _FETCH.finditer(text)], key=lambda c: c[0].start())
+    out = []
+    for m, build in calls:
+        parts = _split_until(text, m.end(), ")")
+        line = node.line if first_line is None else first_line + text.count("\n", 0, m.start())
+        control = build(file, line, node.describe(), parts, resolve) if parts else None
+        if control:
+            out.append(control)
+    return out
+
+
+def _ajax_control(file: str, line: int, element: str, args: list[str], resolve) -> Control | None:
+    """
+    ``htmx.ajax(verb, url, options)``, scoped as htmx 4 does: the target is
+    ``options.target``, or ``options`` itself when it is a selector or an
+    element; with neither a target nor a source, it is the body.
+    """
+    method = _literal(args[0]) if args else None
+    if not method or len(args) < 2:
+        return None
+    url = _literal(args[1])
+    shown = args[1] if url is None else url.replace(URLFOR, "url:")
+    url = JINJA if url is None else url
+    options = _object(args[2]) if len(args) > 2 and args[2].startswith("{") else ({"target": args[2]} if len(args) > 2 else {})
+    target, source = options.get("target"), options.get("source")
+    if "select" in options:
+        scope, why = "full", "htmx.ajax select"
+    elif target is None and source is None:
+        scope, why = "full", "htmx.ajax, no target: body"
+    elif _is_body(target if target is not None else source):
+        scope, why = "full", "htmx.ajax target=body"
+    elif target is None:
+        scope, why = "unknown", "htmx.ajax target is the source's"
+    elif _literal(target) and JINJA not in _literal(target):
+        scope, why = "partial", f"htmx.ajax target={_literal(target)}"
+    else:
+        scope, why = "unknown", "htmx.ajax target is computed"
+    endpoint, problem = resolve(url, method.upper())
+    # A source's own values go with the request as htmx collects them; nothing here can add hx-include.
+    return Control(file, line, element, method.upper(), shown, endpoint, scope, why, include=True, problem=problem, via="htmx.ajax")
+
+
+def _fetch_control(file: str, line: int, element: str, args: list[str], resolve) -> Control | None:
+    """``fetch(url, {method})`` with a literal URL that reaches a handler; anything else is not this app's."""
+    url = _literal(args[0]) if args else None
+    if not url:
+        return None
+    options = _object(args[1]) if len(args) > 1 and args[1].startswith("{") else {}
+    method = (_literal(options.get("method", "'GET'")) or "GET").upper()
+    endpoint, problem = resolve(url, method)
+    if problem or endpoint is None:
+        return None
+    return Control(file, line, element, method, url.replace(URLFOR, "url:"), endpoint, "unknown", "fetch: not checked", include=True, via="fetch")
+
+
+def _split_until(text: str, start: int, close: str) -> list[str] | None:
+    """The top-level comma-separated parts from ``start`` to the unmatched ``close``, as source text."""
+    parts, current, depth, quote, i = [], [], 0, None, start
+    while i < len(text):
+        ch = text[i]
+        if quote:
+            if ch == "\\":
+                current.append(text[i : i + 2])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+        elif ch in "'\"`":
+            quote = ch
+        elif ch in "([{":
+            depth += 1
+        elif ch in ")]}":
+            if depth == 0:
+                if ch != close:
+                    return None
+                parts.append("".join(current).strip())
+                return [p for p in parts if p]
+            depth -= 1
+        elif ch == "," and depth == 0:
+            parts.append("".join(current).strip())
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    return None
+
+
+def _object(text: str) -> dict[str, str]:
+    """A JavaScript object literal's top-level ``key: value`` pairs, values as source text."""
+    entries = {}
+    for part in _split_until(text, 1, "}") or []:
+        key, sep, value = part.partition(":")
+        key = key.strip().strip("'\"")
+        entries[key] = value.strip() if sep else key  # { target } is shorthand for { target: target }
+    return entries
+
+
+def _literal(expr: str | None) -> str | None:
+    """The value of a string literal, or None for anything computed (a template literal with ``${}`` included)."""
+    m = re.fullmatch(r"""\s*(['"`])(.*)\1\s*""", expr or "", re.S)
+    if not m or (m.group(1) == "`" and "${" in m.group(2)):
+        return None
+    return m.group(2)
+
+
+def _is_body(expr: str | None) -> bool:
+    return (expr or "").strip() == "document.body" or _literal(expr) == "body"
+
+
 def resolve_path(url: str) -> str | None:
     """The path of a literal URL, or None when it is computed or relative."""
     if JINJA in url or not url.startswith("/"):
@@ -263,16 +405,19 @@ class HandlerVisitor(ast.NodeVisitor):
     use to the verb they mean (``{"render": "render", "hx.render": "render"}``);
     ``flash_names`` are the calls that queue a message; ``value_attrs`` the
     request attributes that read submitted values; ``body_attrs`` those of
-    them that read the request body.
+    them that read the request body; ``json_calls`` the calls that build a
+    JSON response.
     """
 
-    def __init__(self, handler: Handler, verb_names: dict[str, str], flash_names: Iterable[str], value_attrs: Iterable[str], method: str = ALL_METHODS, body_attrs: Iterable[str] = BODY_ATTRS):
+    def __init__(self, handler: Handler, verb_names: dict[str, str], flash_names: Iterable[str], value_attrs: Iterable[str], method: str = ALL_METHODS, body_attrs: Iterable[str] = BODY_ATTRS, json_calls: Iterable[str] = JSON_CALLS):
         self.h = handler
         self.verb_names = verb_names
         self.flash_names = set(flash_names)
         self.value_attrs = set(value_attrs)
         self.body_attrs = set(body_attrs)
+        self.json_calls = set(json_calls)
         self.method = method
+        self.depth = 0  # returns count only in the handler itself, not in a function defined inside it
 
     def _dotted(self, node: ast.AST) -> str | None:
         if isinstance(node, ast.Name):
@@ -283,9 +428,39 @@ class HandlerVisitor(ast.NodeVisitor):
         return None
 
     def visit_FunctionDef(self, node):
+        self.depth += 1
         self._visit_stmts(node.body)
+        self.depth -= 1
 
     visit_AsyncFunctionDef = visit_FunctionDef  # noqa: N815
+
+    def visit_Return(self, node: ast.Return):
+        if self.depth <= 1:
+            json = self._json(node.value)
+            if json:
+                self.h.json_returns.setdefault(self.method, set()).add(json)
+            elif not self._leaves(node.value):  # a login check's hx.navigate says nothing about the answer
+                self.h.other_returns.setdefault(self.method, set()).add("return")
+        self.generic_visit(node)
+
+    def _json(self, value: ast.AST | None) -> str | None:
+        """``jsonify(...)``, ``{...}``, ``[...]``, alone or as a ``(body, status)`` tuple or in ``make_response``."""
+        if isinstance(value, ast.Tuple) and value.elts:
+            value = value.elts[0]
+        if isinstance(value, ast.Dict):
+            return "a dict"
+        if isinstance(value, ast.List):
+            return "a list"
+        if isinstance(value, ast.Call):
+            name = (self._dotted(value.func) or "").rsplit(".", 1)[-1]
+            if name in self.json_calls:
+                return f"{name}(...)"
+            if name == "make_response" and value.args:
+                return self._json(value.args[0])
+        return None
+
+    def _leaves(self, value: ast.AST | None) -> bool:
+        return isinstance(value, ast.Call) and self.verb_names.get(self._dotted(value.func) or "") in LEAVING_VERBS
 
     def visit_If(self, node: ast.If):
         self._visit_stmts([node])
@@ -420,8 +595,8 @@ def _methods_tested(test: ast.AST) -> set[str] | None:
     return None
 
 
-def scan_function(handler: Handler, tree: ast.AST, verb_names: dict[str, str], flash_names=("flash", "add_message", "success", "info", "warning", "error", "debug"), value_attrs=("GET", "POST", "FILES", "body", "args", "form", "files", "values", "json", "get_json"), method: str = ALL_METHODS, body_attrs=BODY_ATTRS) -> None:
-    HandlerVisitor(handler, verb_names, flash_names, value_attrs, method, body_attrs).visit(tree)
+def scan_function(handler: Handler, tree: ast.AST, verb_names: dict[str, str], flash_names=("flash", "add_message", "success", "info", "warning", "error", "debug"), value_attrs=("GET", "POST", "FILES", "body", "args", "form", "files", "values", "json", "get_json"), method: str = ALL_METHODS, body_attrs=BODY_ATTRS, json_calls=JSON_CALLS) -> None:
+    HandlerVisitor(handler, verb_names, flash_names, value_attrs, method, body_attrs, json_calls).visit(tree)
 
 
 # --------------------------------------------------------------------- checks
@@ -470,6 +645,15 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
         if h is None:
             continue
         h.controls.append(c)
+        if c.via == "fetch":
+            negotiates = sorted(h.verbs_for(c.method) & NEGOTIATING_VERBS)
+            if negotiates:
+                m.warnings.append(
+                    f"{c.file}:{c.line} <{c.element}> calls fetch() on {c.method} {c.url}, but {h.label} chooses its answer "
+                    f"from HX-Request-Type ({', '.join(verb_prefix + v for v in negotiates)}), which fetch never sends, so the "
+                    f"script always gets the page. Call htmx.ajax() instead, and the map checks it like any control."
+                )
+            continue
         for hatch in sorted(h.escapes):
             m.warnings.append(
                 f"{h.label} calls .{hatch}(); {c.file}:{c.line} <{c.element}> can no longer predict its DOM effect "
@@ -482,6 +666,16 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
                     f"{c.file}:{c.line} <{c.element}> sends no form values on DELETE, but {h.label} reads request values; "
                     f'add hx-include="closest form".'
                 )
+        json = sorted(_in_scope(h.json_returns, c.method))
+        if json and not h.verbs_for(c.method) - LEAVING_VERBS:
+            # Every return is JSON: the control certainly gets it. Some other return: a branch may answer htmx with HTML.
+            certain = not _in_scope(h.other_returns, c.method)
+            (m.errors if certain else m.warnings).append(
+                f"{c.file}:{c.line} <{c.element}> reaches {h.label}, which {'returns' if certain else 'can return'} JSON "
+                f"({' or '.join(json)}); htmx swaps a response as HTML, so the JSON text lands in the target. Answer with "
+                f"HTML ({verb_prefix}render/fragment/text), or call the endpoint with fetch() from the script that uses the data."
+            )
+            continue
         if not h.verbs:
             m.warnings.append(
                 f"{c.file}:{c.line} <{c.element}> reaches {h.label} which calls no hx verb, so whether it answers "
@@ -533,7 +727,9 @@ def format_map(m: Map, check_: bool = True) -> str:
             lines.append(f"  announces {event} -> {heard}")
     if check_:
         lines += [f"[error] {e}" for e in m.errors] + [f"[warning] {w}" for w in m.warnings]
-        lines.append(f"hx map: {len(m.controls)} controls, {len(m.handlers)} handlers, {len(m.errors)} errors, {len(m.warnings)} warnings")
+        fetches = sum(c.via == "fetch" for c in m.controls)
+        calls = f", {fetches} fetch calls" if fetches else ""
+        lines.append(f"hx map: {len(m.controls) - fetches} controls{calls}, {len(m.handlers)} handlers, {len(m.errors)} errors, {len(m.warnings)} warnings")
     return "\n".join(lines) + "\n"
 
 

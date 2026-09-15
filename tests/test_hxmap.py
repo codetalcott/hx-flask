@@ -268,6 +268,149 @@ def test_map_reports_a_request_body_read_on_delete(make_app):
     assert not any("sends no form values" in w for w in m.warnings)
 
 
+def test_htmx_ajax_in_a_script_or_an_attribute_is_a_control(make_app):
+    from flask import request
+
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <form x-data="{ selected: [] }">
+              <button type="button" @click="confirm(`Delete ${selected.length}?`) &&
+                  htmx.ajax('DELETE', '/items', { source: $root, target: document.body })">Delete</button>
+            </form>
+            <script>
+              htmx.ajax('GET', '{{ url_for("detail") }}', '#panel');
+              htmx.ajax("GET", `/detail/${id}`, {target: "#panel"});
+              htmx.ajax('POST', '/nowhere', {target: 'body', values: {a: [1, 2]}});
+            </script>
+            <div id="panel"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.delete("/items")
+    def items():
+        request.form.getlist("id")  # the source form's values arrive as query parameters
+        return hx.redirect("/")
+
+    @app.get("/detail")
+    def detail():
+        return hx.page("page.html")
+
+    m = build_map(app)
+    toolbar = by(m.controls, via="htmx.ajax", method="DELETE")[0]
+    assert (toolbar.line, toolbar.element, toolbar.endpoint, toolbar.scope, toolbar.why) == (3, "button", "items", "full", "htmx.ajax target=body")
+    script = by(m.controls, via="htmx.ajax", endpoint="detail")[0]
+    assert (script.line, script.element, script.scope, script.url) == (7, "script", "partial", "url:detail")
+    assert m.errors == [
+        'items() reads request.form on DELETE, but htmx 4 sends DELETE values as query parameters, so it is always empty; read the query string (request.args / request.GET), with hx-include="closest form" on the control if the values are in a form.',
+        "page.html:7 <script> targets an element (htmx.ajax target=#panel) but detail() only calls hx.page; the page would land inside it. Target body, or give the handler a partial.",
+        "page.html:9 <script> POST /nowhere: POST /nowhere matches no route (404)",
+    ]
+    assert m.warnings == ["page.html:8 <script> GET `/detail/${id}`: computed URL; cannot resolve statically"]
+
+
+def test_fetch_is_listed_under_its_handler_and_checked_only_where_it_cannot_work(make_app):
+    from flask import jsonify
+
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}<script>
+            const token = await (await fetch("/token")).text();
+            fetch('{{ url_for("rows") }}').then(r => r.text()).then(html => tbody.innerHTML = html);
+            fetch("https://api.example.com/x", {method: "POST"});
+            </script>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.get("/token")
+    def token():
+        return jsonify(token="t")  # JSON to a script is what fetch is for
+
+    @app.get("/rows")
+    def rows():
+        return hx.render("index.html", partial="rows", items=[])
+
+    m = build_map(app)
+    assert m.errors == []
+    assert m.warnings == [
+        "page.html:3 <script> calls fetch() on GET url:rows, but rows() chooses its answer from HX-Request-Type (hx.render), "
+        "which fetch never sends, so the script always gets the page. Call htmx.ajax() instead, and the map checks it like any control."
+    ]
+    assert [(c.endpoint, c.why) for c in m.controls] == [("token", "fetch: not checked"), ("rows", "fetch: not checked")]
+    out = io.StringIO()
+    print_map(app, out=out)
+    assert "  <- page.html:2 <script> GET unknown (fetch: not checked)" in out.getvalue()
+    assert "hx map: 0 controls, 2 fetch calls," in out.getvalue()
+
+
+def test_map_reports_json_returned_to_a_control(make_app):
+    from flask import jsonify, make_response, render_template, request, session
+
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <button hx-post="{{ url_for('subscribe') }}" hx-target="#msg">subscribe</button>
+            <button hx-get="{{ url_for('status') }}" hx-target="#msg">status</button>
+            <button hx-get="{{ url_for('either') }}" hx-target="#msg">either</button>
+            <button hx-get="{{ url_for('negotiated') }}" hx-target="#msg">negotiated</button>
+            <button hx-delete="{{ url_for('gone') }}" hx-target="#msg">gone</button>
+            <button hx-get="{{ url_for('helper') }}" hx-target="#msg">helper</button>
+            <div id="msg"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.post("/subscribe")
+    def subscribe():
+        if "user" not in session:
+            return hx.navigate("/login")  # leaving says nothing about the answer
+        return jsonify(ok=True), 201
+
+    @app.get("/status")
+    def status():
+        return {"status": "ok"}
+
+    @app.get("/either")
+    def either():
+        if request.accept_mimetypes.best == "application/json":
+            return make_response([1, 2])
+        return render_template("page.html")
+
+    @app.get("/negotiated")
+    def negotiated():
+        if request.is_json:
+            return {"a": 1}
+        return hx.render("index.html", partial="rows", items=[])
+
+    @app.route("/gone", methods=["GET", "DELETE"])
+    def gone():
+        if request.method == "GET":
+            return {"gone": True}
+        return hx.removed()
+
+    @app.get("/helper")
+    def helper():
+        def payload():
+            return {"nested": True}  # not the handler's return
+
+        return render_template("page.html", data=payload())
+
+    m = build_map(app)
+    assert m.errors == [
+        "page.html:2 <button> reaches subscribe(), which returns JSON (jsonify(...)); htmx swaps a response as HTML, so the JSON "
+        "text lands in the target. Answer with HTML (hx.render/fragment/text), or call the endpoint with fetch() from the script that uses the data.",
+        "page.html:3 <button> reaches status(), which returns JSON (a dict); htmx swaps a response as HTML, so the JSON text lands in the target. "
+        "Answer with HTML (hx.render/fragment/text), or call the endpoint with fetch() from the script that uses the data.",
+    ]
+    assert [w.split(";")[0] for w in m.warnings] == [
+        "page.html:4 <button> reaches either(), which can return JSON (a list)",
+        "page.html:7 <button> reaches helper() which calls no hx verb, so whether it answers with a page or a fragment cannot be checked",
+    ]
+    assert m.handlers["gone"].json_returns == {"GET": {"a dict"}}
+
+
 def test_by_template_says_who_renders_each_block(app):
     out = io.StringIO()
     assert print_map(app, out=out, by_template=True) == 0

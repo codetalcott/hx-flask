@@ -97,10 +97,12 @@ app. Every row has a test.
 | `hx.render` called with no `partial=` | `HxError`, naming `hx.page` for a page-only handler | raises |
 | An htmx request without `HX-Request-Type`, including a test that sends only `HX-Request` | `HxProtocolError`: this needs htmx 4. A verb raises it; the guard raises it for a response built without one | raises from a verb; logs from the guard |
 | The lint is on and `hxlint.py` or `hx_vocab.py` is missing, as when only `hx.py` was copied | `HxLintError`, naming the files to copy | off unless `HX(lint=True)`; then logs once |
-| htmx 2 idioms in the HTML: `<body hx-boost="true">`, `hx-ext`, implicit inheritance, htmx 2 event names in `hx-on` or `hx-trigger`, camelCase or kebab-case (`hx-on::after-request`), `show:#x:top` | `hxlint`, on every test response and in `flask hx lint` | off unless `HX(lint=True)`; then logs |
-| A partial control pointing at a page-only handler, or a boosted link at a fragment-only one | `flask hx map`, errors | |
+| htmx 2 idioms in the HTML: `<body hx-boost="true">`, `hx-ext`, implicit inheritance, `show:#x:top` | `hxlint`, on every test response and in `flask hx lint` | off unless `HX(lint=True)`; then logs |
+| htmx 2 event names, camelCase or kebab-case (`hx-on::after-request`), wherever a listener names one: `hx-on`, `hx-trigger`, a string in a `<script>` or `.js` file, hyperscript, Alpine; and `event.detail.xhr`, which htmx 4's `fetch()` never sets | `hxlint`, as above; `flask hx lint templates static/js` for scripts | off unless `HX(lint=True)`; then logs |
+| A partial control pointing at a page-only handler, or a boosted link at a fragment-only one, including an `htmx.ajax()` call in a script | `flask hx map`, errors | |
 | A handler reads the `HX-Trigger` request header, or `request.form` on DELETE: both always empty in htmx 4 | `flask hx map`, errors, with or without hx verbs | |
-| A control reaching a handler that calls no hx verb; `.retarget()` or `.reswap()`; reading `HX-Target` or `HX-Source` | `flask hx map`, warnings | |
+| A control reaching a handler that returns JSON, which htmx swaps as HTML | `flask hx map`: an error if every return is JSON, a warning if one is | |
+| A control reaching a handler that calls no hx verb; `.retarget()` or `.reswap()`; reading `HX-Target` or `HX-Source`; `fetch()` to a handler that calls `hx.render` | `flask hx map`, warnings | |
 
 ## What was rejected
 

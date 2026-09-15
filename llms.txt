@@ -65,8 +65,15 @@ The layout loads htmx 4 and, because attributes reach descendants only with
   (`"/todos/{{ id }}"`) and only warns. Every name is literal: `partial="rows"`
   is `{% block rows %}` in that template.
 - Event names are colon-separated: `hx-on::after:request`,
-  `hx-trigger="htmx:after:swap from:body"`. htmx 2's `after-request` and
-  `afterRequest` forms listen for events htmx 4 never fires.
+  `hx-trigger="htmx:after:swap from:body"`, `addEventListener("htmx:config:request", ...)`.
+  htmx 2's `after-request` and `afterRequest` forms listen for events htmx 4
+  never fires. For code that runs on new content, `htmx.onLoad(fn)`, not
+  `htmx:load`.
+- An event's detail has no `xhr`: htmx 4 uses `fetch()`. Read
+  `event.detail.ctx` (`ctx.response.status`, `ctx.text`).
+- A control gets HTML. A handler an `hx-*` control or `htmx.ajax()` reaches never
+  returns `jsonify(...)` or a dict; a script that wants data calls `fetch()`.
+  A `fetch()` gets the page from `hx.render`, because it sends no `HX-Request-Type`.
 
 ## The vocabulary
 
@@ -146,24 +153,41 @@ test that sends only `HX-Request`, as htmx 2 did, raises `HxProtocolError`.
 
 ## Tools
 
-    flask --app app hx lint templates   # htmx 4 vocabulary over template source; exit 1 on errors
+    flask --app app hx lint templates static/js   # htmx 4 vocabulary over templates and scripts; exit 1 on errors
     flask --app app hx map              # every control -> its handler, full or partial, checked
     flask --app app hx map --by-template   # the same map keyed by template#block: who renders it
 
-The lint errors on htmx 2 vocabulary (attributes, and event names in `hx-on` or
-`hx-trigger`, camelCase or kebab-case) and on a plain `hx-boost` anywhere but
+The lint errors on htmx 2 vocabulary and on a plain `hx-boost` anywhere but
 `<a>`/`<form>` (`boost-not-inherited`: `<body hx-boost="true">` boosts nothing);
-it warns on implicit inheritance of other attributes.
+it warns on implicit inheritance of other attributes. htmx 2 vocabulary is the
+attributes (`hx-ext`, `hx-vars`), and event names camelCase, kebab-case or
+removed (`htmx:xhr:progress`) wherever a listener names one: `hx-on`,
+`hx-trigger`, a string in JavaScript (`<script>`, a `.js` file, `onclick`,
+Alpine's `@click`), hyperscript's `_`, Alpine's `x-on:htmx:...`
+(`htmx2-event-name`). It also errors on `event.detail.xhr` in any of those
+(`htmx2-detail-xhr`). A directory is searched for `*.html` and `*.js`, skipping
+htmx's own files (`htmx-4.0.0.js`, `hx-sse.js`, `htmx-2-compat.js`).
+
+The map's controls are `hx-*` attributes, boosted links and forms, and
+`htmx.ajax(verb, url, options)` calls with a literal verb, in a `<script>` or an
+attribute such as `@click`. htmx 4 scopes them: `target: document.body`, or no
+target and no source, is a full request. A `fetch()` with a literal URL that
+reaches a handler is listed under it, `(fetch: not checked)`.
 
 The map errors on a partial control reaching a page-only handler, a full control
 reaching a fragment-only one, a URL that resolves to nothing, a handler that
-reads the `HX-Trigger` request header, and a handler that reads `request.form`
-on DELETE. The last two need no hx verb in the handler. It warns on a control
-reaching a handler that calls no hx verb, a handler that calls `.retarget()` or
-`.reswap()`, a handler that reads `HX-Target` or `HX-Source`, a DELETE control
-without `hx-include="closest form"` whose handler reads request values, and an
-event announced or listened for on only one side. `hx.navigate` says nothing
-about shape: a handler that calls it and `hx.page` is still checked as page-only. `--by-template` inverts it: every template and block a handler names, the
+reads the `HX-Trigger` request header, a handler that reads `request.form`
+on DELETE, and a control reaching a handler whose every return is JSON
+(`jsonify(...)`, a dict or a list, alone or with a status). The last three need
+no hx verb in the handler. It warns on a control reaching a handler that calls no
+hx verb, or that returns JSON on some branch and has no verb; a handler that calls
+`.retarget()` or `.reswap()`; a handler that reads `HX-Target` or `HX-Source`; a
+DELETE control without `hx-include="closest form"` whose handler reads request
+values; a `fetch()` to a handler that calls `hx.render` or `hx.invalid`, which
+answers fetch with the page; and an event announced or listened for on only one
+side. `hx.navigate` says nothing about shape: a handler that calls it and
+`hx.page` is still checked as page-only, and its return does not hide a JSON
+return. `--by-template` inverts it: every template and block a handler names, the
 handlers that render it, and the controls that reach them, for when you are
 editing a block and need to know who serves it.
 
@@ -179,3 +203,5 @@ editing a block and need to know who serves it.
 - Only 204 and 304 skip the swap. A 422 body swaps with no client configuration.
 - An `HX-Redirect` response header makes htmx load that URL as a full page and skip the swap.
 - `hx-on::<event>` listens for `htmx:<event>`, as written; htmx 4 fires no kebab-case aliases.
+- Requests use `fetch()`; an event's detail is `{ctx}`, never `xhr`.
+- `htmx.ajax('DELETE', url, {source: form})` sends the form's values as query parameters.
