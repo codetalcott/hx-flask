@@ -3,7 +3,7 @@
 import pytest
 
 import hx_vocab as V
-from hxlint import hcon_parse, hcon_split, lint_html, lint_paths, lint_source, parse_swap_spec, parse_trigger_specs
+from hxlint import hcon_parse, hcon_split, lint_html, lint_paths, lint_script, lint_source, parse_swap_spec, parse_trigger_specs
 from tests.conftest import FULL, PARTIAL, ROOT
 
 
@@ -46,6 +46,8 @@ def test_vocabulary_is_generated_from_htmx_and_knows_the_facts_that_bit_us():
     assert {"swap", "settle", "show", "showTarget", "transition"} <= set(V.SWAP_MODIFIERS)
     assert {"once", "changed", "delay", "throttle", "from", "consume"} <= set(V.TRIGGER_MODIFIERS)
     assert V.HTMX2_EVENT_NAMES["htmx:afterSwap"] == "htmx:after:swap"
+    assert V.HTMX2_EVENT_NAMES["htmx:load"] == "htmx:after:init" and V.HTMX2_EVENT_NAMES["htmx:xhr:progress"] == "(removed)"
+    assert not any(v.startswith("(see") for v in V.HTMX2_EVENT_NAMES.values())
 
 
 # ---------------------------------------------------------------- the rules
@@ -76,6 +78,14 @@ def test_htmx2_attributes_are_errors_with_the_replacement():
 def test_unknown_attribute_suggests():
     f = lint_html('<div hx-targt="#x"></div>')
     assert rules(f, "error") == ["unknown-attribute"] and "did you mean hx-target?" in f[0].message
+    assert "did you mean hx-trigger?" in lint_html('<div hx-triger="click"></div>')[0].message
+
+
+def test_suggestions_compare_the_name_after_hx():
+    # The shared prefix used to make any short name "close": hx-取得 (a localized hx-get) suggested hx-ws.
+    [finding] = lint_html('<div hx-取得="/x"></div>')
+    assert finding.rule == "unknown-attribute" and "did you mean" not in finding.message
+    assert "did you mean" not in lint_html('<div hx-foo="1"></div>')[0].message
 
 
 def test_swap_values():
@@ -120,6 +130,70 @@ def test_htmx2_event_names_in_hx_trigger():
     # htmx 4's own names, including the camelCase segment some of them carry, and an app's events
     for trigger in ("htmx:after:request from:body", "htmx:after:viewTransition", "contacts-changed from:body", "keyup delay:200ms changed"):
         assert lint_html(f'<div hx-get="/x" hx-trigger="{trigger}"></div>') == [], trigger
+
+
+def test_htmx2_event_names_in_javascript():
+    html = """<html><body>
+    <script>
+      document.body.addEventListener("htmx:configRequest", e => {});
+      addEventListener('htmx:after-request', e => {});
+      document.addEventListener(`htmx:after:swap`, e => e.detail.ctx);
+      htmx.on("contacts-changed", e => {});
+    </script>
+    <button onclick="document.body.addEventListener('htmx:afterSwap', f)">x</button>
+    </body></html>"""
+    f = lint_html(html)
+    assert [(x.rule, x.element, x.line) for x in f] == [("htmx2-event-name", "script", 3), ("htmx2-event-name", "script", 4), ("htmx2-event-name", "button", 8)]
+    assert "htmx:configRequest is the htmx 2 event name; htmx 4 calls it htmx:config:request." == f[0].message
+    assert "htmx 4 fires only htmx:after:request, so this listener never runs" in f[1].message
+    assert lint_html('<script type="application/ld+json">{"name": "htmx:after:swap"}</script>') == []
+
+
+def test_htmx2_event_names_in_hyperscript_and_alpine():
+    hyperscript = """<button _="on click send htmx:abort to #contacts-btn
+        on htmx:beforeRequest from #contacts-btn remove @disabled from me">Cancel</button>"""
+    [finding] = lint_html(hyperscript)
+    assert finding.rule == "htmx2-event-name" and "htmx:before:request" in finding.message  # htmx:abort is htmx 4's too
+    assert finding.line == 1  # an attribute's findings carry its element's line
+    assert rules(lint_html('<script type="text/hyperscript">on htmx:afterSwap log me</script>')) == ["htmx2-event-name"]
+    assert len(lint_html('<form x-on:htmx:afterSwap="a()" @htmx:after-request.window="b()"></form>')) == 2
+    assert lint_html('<form x-on:htmx:after:swap="a()" @htmx:after:request.window="b()"></form>') == []
+
+
+def test_events_htmx_4_removed_and_htmx_load():
+    [removed] = lint_html('<script>el.addEventListener("htmx:xhr:progress", show)</script>')
+    assert removed.message == "htmx:xhr:progress is an htmx 2 event that htmx 4 no longer fires."
+    [load] = lint_script('addEventListener("htmx:load", e => overflowMenu(e.target));', file="rsjs-menu.js")
+    assert str(load).startswith("[error] htmx2-event-name rsjs-menu.js:1: htmx:load is the htmx 2 event name; htmx 4 calls it htmx:after:init.")
+    assert "htmx.onLoad(fn)" in load.message
+    assert rules(lint_html('<div hx-on::load="x()"></div>')) == ["htmx2-event-name"]
+    assert lint_html('<a hx-on:load="this.click()">x</a>') == []  # the DOM's load, not htmx's
+
+
+def test_detail_xhr_is_htmx_2():
+    js = """document.body.addEventListener('htmx:before:swap', evt => {
+      if (evt.detail.xhr.status === 404) { showNotFoundError(); }
+    });"""
+    [finding] = lint_script(js, file="app.js")
+    assert (finding.rule, finding.severity, finding.line) == ("htmx2-detail-xhr", "error", 2)
+    assert "htmx 4 uses fetch()" in finding.message and "ctx.response.status" in finding.message
+    # The spike's held-out apps read it in hx-on handlers
+    f = lint_html('<form hx-post="/x" hx-on::after:request="JSON.parse(event.detail.xhr.responseText)"></form>')
+    assert rules(f) == ["htmx2-detail-xhr"]
+    assert rules(lint_html("""<div _="on htmx:after:request if event.detail['xhr'].status is 200 log it"></div>""")) == ["htmx2-detail-xhr"]
+    assert lint_script("evt.detail.ctx.response.status; xhrCount++; detail.xhrs") == []
+
+
+def test_lint_paths_reads_scripts_and_skips_htmx_itself(tmp_path, capsys):
+    (tmp_path / "js").mkdir()
+    (tmp_path / "js" / "menu.js").write_text('addEventListener("htmx:load", init);\n')
+    (tmp_path / "js" / "htmx-2-compat.js").write_text('maybeRetriggerEvent(elt, "htmx:load", detail);\n')
+    (tmp_path / "js" / "htmx-4.0.0.min.js").write_text('trigger("htmx:afterSwap")\n')
+    (tmp_path / "page.html").write_text("<p>ok</p>")
+    assert lint_paths([str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert "menu.js:1" in out and "compat" not in out and "min.js" not in out
+    assert "hx lint: 2 files, 1 errors" in out
 
 
 def test_implicit_inheritance_is_the_2e_todo():

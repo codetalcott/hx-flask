@@ -8,6 +8,7 @@ import os
 import pathlib
 import shutil
 import sys
+import threading
 
 import pytest
 from flask import Flask
@@ -59,6 +60,34 @@ def app(contact_app, workdir):
 @pytest.fixture
 def client(app):
     return app.test_client()
+
+
+@pytest.fixture
+def serve():
+    """``serve(app)`` runs a WSGI app on a free port for this test and returns its base URL."""
+    from werkzeug.serving import make_server
+
+    servers = []
+
+    def start(wsgi_app):
+        server = make_server("127.0.0.1", 0, wsgi_app, threaded=True)
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        servers.append(server)
+        return f"http://127.0.0.1:{server.server_port}"
+
+    yield start
+    for server in servers:
+        server.shutdown()
+
+
+@pytest.fixture(scope="session")
+def browser():
+    """Chromium, for tests marked ``browser``. Needs ``playwright install chromium``."""
+    sync_api = pytest.importorskip("playwright.sync_api")
+    with sync_api.sync_playwright() as p:
+        b = p.chromium.launch()
+        yield b
+        b.close()
 
 
 LAYOUT = """<!doctype html><html><body hx-boost:inherited="true">

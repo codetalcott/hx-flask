@@ -4,6 +4,26 @@
 
 ### Added
 
+- Lint rule `htmx2-event-name` reads JavaScript as well as `hx-on` and
+  `hx-trigger`: quoted event names in `<script>`, `onclick`, Alpine's `@click`
+  and `x-on:htmx:...`, hyperscript's `_`, and `.js` files, which `flask hx lint`
+  now searches (`flask hx lint templates static/js`), skipping htmx's own files.
+  `addEventListener("htmx:configRequest", ...)`, the book's chapter 8 idiom,
+  listens for an event htmx 4 never fires. `hxlint.lint_script()` lints a
+  JavaScript source.
+- Lint rule `htmx2-detail-xhr` (error): `event.detail.xhr`, which is undefined
+  under htmx 4's `fetch()`, so the handler throws.
+- `flask hx map` sees `htmx.ajax(verb, url, options)` in a `<script>` or an
+  attribute as a control, scoped the way htmx 4 scopes it. A `fetch()` that
+  reaches a handler is listed under it, and a warning when that handler calls
+  `hx.render`, which answers fetch with the page.
+- `flask hx map` reports JSON (`jsonify(...)`, a returned dict or list) reaching
+  an htmx control, instead of "calls no hx verb": an error when every return is
+  JSON, a warning when one is.
+- `HTMX4.md` tracks the book's `2nd-edition` branch per row, and covers
+  chapters 8 and 9: the event renames, `detail.xhr`, the RSJS menu's
+  `htmx:load`, and the Alpine toolbar's `htmx.ajax` DELETE. Two browser tests
+  confirm the facts reading the source did not settle.
 - `hx.navigate(url)`: leave the page whatever the control targets, for a login
   check or an expired session. A plain 303 when the request wanted a page,
   `HX-Redirect` when it targets an element. A flash queued before it waits for
@@ -70,6 +90,13 @@
 
 ### Fixed
 
+- `hx_vocab.HTMX2_EVENT_NAMES` has htmx 4's rename for every htmx 2 event:
+  `htmx:load` (`htmx:after:init`, and the lint names `htmx.onLoad`),
+  `htmx:beforeSend`, `htmx:timeout`, and the removed `htmx:xhr:*` and
+  `htmx:validation:*`. The generator skipped every name without a capital
+  letter, and left four others as "(see htmx-2-compat.js)".
+- `unknown-attribute` suggestions compare the name after `hx-`: `hx-取得`
+  suggested `hx-ws`, because the shared prefix made any short name close.
 - A 304 answering a partial request is no longer reported as a redirect that
   fetch would follow; htmx skips the swap on a 304 by design.
 - `hxlint.lint_html(extensions=)` takes the name htmx registers an extension
