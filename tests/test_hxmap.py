@@ -429,3 +429,64 @@ def test_by_template_says_who_renders_each_block(app):
     ]
     assert text.rstrip().endswith("hx map: 7 templates, 15 handlers")
     assert "[error]" not in text and "controls," not in text  # not the by-handler report as well
+
+
+def _listener_map(make_app, body, handler=None):
+    from hx import hx
+
+    app = make_app({"page.html": f"<html><body>{body}</body></html>"})
+
+    @app.get("/page")
+    def page():
+        return hx.page("page.html")
+
+    if handler:
+        app.post("/save")(handler)
+    return build_map(app)
+
+
+def _announces_saved():
+    from hx import hx
+
+    return hx.page("page.html").trigger("saved")
+
+
+def _announces_other():
+    from hx import hx
+
+    return hx.page("page.html").trigger("other")
+
+
+def test_map_pairs_hyperscript_listener_with_trigger(make_app):
+    m = _listener_map(make_app, """<div _="on saved from body add .flash to me">x</div>""", handler=_announces_saved)
+    assert m.warnings == [] and m.errors == []
+    assert [li.event for li in m.listeners] == ["saved"]
+
+
+def test_map_warns_when_hyperscript_listener_is_never_announced(make_app):
+    m = _listener_map(make_app, """<div _="on archived(id) log it end on click add .x">x</div>""")
+    assert [li.event for li in m.listeners] == ["archived"]
+    assert any("event 'archived' is listened for (page.html:" in w for w in m.warnings)
+
+
+def test_map_warns_when_trigger_has_only_a_hyperscript_listener_elsewhere(make_app):
+    m = _listener_map(make_app, """<p data-script="on every refresh log 1">x</p>""", handler=_announces_other)
+    assert "event 'other' is announced by _announces_other() but nothing in the templates listens for it." in m.warnings
+    assert any("event 'refresh' is listened for" in w for w in m.warnings)
+
+
+def test_map_ignores_browser_events_and_htmx_events_in_hyperscript(make_app):
+    body = (
+        """<div _="on mouseover add .x">a</div>"""
+        """<div _="on pointerenter add .x end on canplay add .x end on touchcancel add .x">a</div>"""
+        """<div _="on htmx:afterSwap add .y">b</div>"""
+        """<div _="on click add .z end on keydown[key=='Enter'] add .w">c</div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert m.listeners == [] and m.warnings == []
+
+
+def test_map_script_named_event_hides_hyperscript_listener_warning(make_app):
+    body = """<div _="on ping add .x">a</div><script>el.dispatchEvent(new Event("ping"))</script>"""
+    m = _listener_map(make_app, body)
+    assert [li.event for li in m.listeners] == ["ping"] and m.warnings == []

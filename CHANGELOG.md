@@ -4,6 +4,12 @@
 
 ### Added
 
+- `flask hx map` reads hyperscript listeners (`on saved from body`, in `_`, `script` or
+  `data-script`) as it reads `hx-trigger` and `hx-on`: they pair with
+  `.trigger()` in both directions, and an `on archived` nothing announces gets
+  the existing warning. Browser events (a full list, measured from Chromium's
+  `on*` handlers) and `htmx:*` names are skipped. `DOM_EVENTS`, which
+  `hx-trigger` and `hx-on` use too, now holds that full list.
 - Lint rule `htmx2-event-name` reads JavaScript as well as `hx-on` and
   `hx-trigger`: quoted event names in `<script>`, `onclick`, Alpine's `@click`
   and `x-on:htmx:...`, hyperscript's `_`, and `.js` files, which `flask hx lint`

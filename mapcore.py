@@ -41,7 +41,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import hx_vocab as vocab
-from hxlint import JINJA, Node, parse, parse_trigger_specs
+from hxlint import HYPERSCRIPT_ATTRS, JINJA, Node, parse, parse_trigger_specs
 
 __all__ = [
     "URLFOR",
@@ -74,6 +74,26 @@ DOM_EVENTS = {
     "transitionend", "animationend", "wheel", "contextmenu", "drop", "dragover", "dragstart", "dragend", "paste",
     "copy", "cut", "select", "invalid", "resize", "hashchange", "popstate", "DOMContentLoaded",
 } | set(vocab.SPECIAL_TRIGGERS)
+# Every event a browser fires on its own, so a hyperscript ``on mouseover`` is not read as a custom event.
+# Source: the ``on*`` handler properties of window, document, HTMLElement, <video>, <dialog> and <input> in
+# Chromium 1.64.0's build (Playwright), plus the events that have no handler property (touch, composition,
+# focusin/out, orientation, DOMContentLoaded, fullscreen/visibility variants). Measured 2026-11-20.
+DOM_EVENTS |= {
+    "abort", "afterprint", "animationcancel", "animationiteration", "animationstart", "auxclick", "beforeinput",
+    "beforematch", "beforeprint", "beforetoggle", "beforeunload", "cancel", "canplay", "canplaythrough", "close",
+    "compositionend", "compositionstart", "compositionupdate", "contextlost", "contextrestored", "cuechange", "drag",
+    "dragenter", "dragleave", "durationchange", "emptied", "ended", "error", "formdata", "fullscreenchange",
+    "fullscreenerror", "gamepadconnected", "gamepaddisconnected", "gotpointercapture", "languagechange", "load",
+    "loadeddata", "loadedmetadata", "loadstart", "lostpointercapture", "message", "messageerror", "offline", "online",
+    "orientationchange", "pagehide", "pagereveal", "pageshow", "pageswap", "pause", "play", "playing", "pointercancel",
+    "pointerenter", "pointerleave", "pointerlockchange", "pointerlockerror", "pointerout", "pointerover", "progress",
+    "ratechange", "readystatechange", "rejectionhandled", "resume", "scrollend", "securitypolicyviolation", "seeked",
+    "seeking", "selectionchange", "selectstart", "slotchange", "stalled", "storage", "suspend", "timeupdate",
+    "touchcancel", "transitioncancel", "transitionrun", "transitionstart", "unhandledrejection", "unload",
+    "visibilitychange", "volumechange", "waiting", "mousewheel",
+}
+# hyperscript: ``on <name>[(args)]`` opens a feature at the start of a script, after ``end`` or on a new line.
+_HS_ON = re.compile(r"(?:^|\bend\b|\n)\s*on\s+(?:every\s+)?([\w:.-]+)(?:\(([^)]*)\))?")
 
 VERBS = {"render", "page", "fragment", "invalid", "redirect", "removed", "text", "navigate"}
 PAGE_VERBS = {"page"}
@@ -392,6 +412,13 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
         elif attr.startswith("hx-on:") and not attr.startswith("hx-on::"):
             name = attr[len("hx-on:"):]
             if name not in DOM_EVENTS and not name.startswith("htmx:"):
+                out.append(Listener(file, node.line, node.describe(), name))
+    seen = set()
+    for attr in HYPERSCRIPT_ATTRS:
+        for match in _HS_ON.finditer(node.attrs.get(attr) or ""):
+            name = match.group(1)
+            if name not in DOM_EVENTS and ":" not in name and name not in seen:
+                seen.add(name)
                 out.append(Listener(file, node.line, node.describe(), name))
     return out
 
