@@ -9,7 +9,9 @@
   `.trigger()` in both directions, and an `on archived` nothing announces gets
   the existing warning. Browser events (a full list, measured from Chromium's
   `on*` handlers) and `htmx:*` names are skipped. `DOM_EVENTS`, which
-  `hx-trigger` and `hx-on` use too, now holds that full list. A hyperscript
+  `hx-trigger` and `hx-on` use too, now holds that full list. A listener with a
+  browser event's name (`close`, `message`) still pairs with a `.trigger()` of
+  that name; only the "listened for but never announced" warning skips it. A hyperscript
   `send x` / `trigger x` counts as the script announcing `x`, so its own
   listener is not reported as never announced. A hyperscript
   `send x` / `trigger x` counts as the script announcing `x`, so its own

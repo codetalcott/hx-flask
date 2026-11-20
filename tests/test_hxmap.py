@@ -465,7 +465,7 @@ def test_map_pairs_hyperscript_listener_with_trigger(make_app):
 
 def test_map_warns_when_hyperscript_listener_is_never_announced(make_app):
     m = _listener_map(make_app, """<div _="on archived(id) log it end on click add .x">x</div>""")
-    assert [li.event for li in m.listeners] == ["archived"]
+    assert [li.event for li in m.listeners if not li.browser] == ["archived"]
     assert any("event 'archived' is listened for (page.html:" in w for w in m.warnings)
 
 
@@ -483,7 +483,7 @@ def test_map_ignores_browser_events_and_htmx_events_in_hyperscript(make_app):
         """<div _="on click add .z end on keydown[key=='Enter'] add .w">c</div>"""
     )
     m = _listener_map(make_app, body)
-    assert m.listeners == [] and m.warnings == []
+    assert [li.event for li in m.listeners if not li.browser] == [] and m.warnings == []
 
 
 def test_map_script_named_event_hides_hyperscript_listener_warning(make_app):
@@ -499,5 +499,28 @@ def test_map_hyperscript_send_names_the_event_it_announces(make_app):
         """<div _="on click send nudged(n:1) to #x end on nudged add .z">c</div>"""
     )
     m = _listener_map(make_app, body)
-    assert sorted(li.event for li in m.listeners) == ["bumped", "nudged", "poked"]
+    assert sorted(li.event for li in m.listeners if not li.browser) == ["bumped", "nudged", "poked"]
     assert m.warnings == []
+
+
+def _announces_close():
+    from hx import hx
+
+    return hx.page("page.html").trigger("close")
+
+
+def test_map_pairs_browser_named_listeners_with_trigger(make_app):
+    for body in (
+        """<div hx-get="/page" hx-trigger="close">x</div>""",
+        """<div hx-on:close="alert(1)">x</div>""",
+        """<div _="on close from body add .x">x</div>""",
+    ):
+        m = _listener_map(make_app, body, handler=_announces_close)
+        assert m.warnings == [], (body, m.warnings)
+        assert [li.event for li in m.listeners] == ["close"]
+
+
+def test_map_does_not_warn_about_a_browser_listener_nothing_announces(make_app):
+    for body in ("""<div _="on mouseover add .x">x</div>""", """<div hx-on:close="x()">x</div>"""):
+        m = _listener_map(make_app, body)
+        assert m.warnings == [], (body, m.warnings)

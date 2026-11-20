@@ -140,6 +140,9 @@ class Listener:
     line: int
     element: str
     event: str
+    # A browser event name (click, close, ...): it can pair with a ``.trigger()`` of the same name, but nothing
+    # is warned about when no handler announces it, because the browser does.
+    browser: bool = False
 
 
 @dataclass
@@ -397,13 +400,17 @@ def resolve_path(url: str) -> str | None:
 
 def _listeners_for(file: str, node: Node) -> list[Listener]:
     out = []
+
+    def add(name: str) -> None:
+        out.append(Listener(file, node.line, node.describe(), name, browser=name in DOM_EVENTS))
+
     trigger = node.own("hx-trigger")
     if trigger and JINJA not in trigger:
         try:
             for spec in parse_trigger_specs(trigger):
                 name = spec["name"].split("[", 1)[0]
-                if name not in DOM_EVENTS and not name.startswith("htmx:"):
-                    out.append(Listener(file, node.line, node.describe(), name))
+                if not name.startswith("htmx:"):
+                    add(name)
         except ValueError:
             pass
     for attr, value in node.attrs.items():
@@ -411,19 +418,19 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
             for part in re.split(r";(?=[^;]*->)", value):
                 if "->" in part:
                     name = part.split("->", 1)[0].strip().split()[0].split("[", 1)[0]
-                    if name not in DOM_EVENTS and not name.startswith("htmx:"):
-                        out.append(Listener(file, node.line, node.describe(), name))
+                    if not name.startswith("htmx:"):
+                        add(name)
         elif attr.startswith("hx-on:") and not attr.startswith("hx-on::"):
             name = attr[len("hx-on:"):]
-            if name not in DOM_EVENTS and not name.startswith("htmx:"):
-                out.append(Listener(file, node.line, node.describe(), name))
+            if not name.startswith("htmx:"):
+                add(name)
     seen = set()
     for attr in HYPERSCRIPT_ATTRS:
         for match in _HS_ON.finditer(node.attrs.get(attr) or ""):
             name = match.group(1)
-            if name not in DOM_EVENTS and ":" not in name and name not in seen:
+            if ":" not in name and name not in seen:
                 seen.add(name)
-                out.append(Listener(file, node.line, node.describe(), name))
+                add(name)
     return out
 
 
@@ -732,7 +739,8 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
             delete_reads_body(h)  # no control needs to resolve: the route itself is DELETE-only
     announced = {e for h in handlers.values() for e in h.announces}
     listened = {li.event for li in listeners}
-    for event in sorted(listened - announced):
+    unannounced = {li.event for li in listeners if not li.browser}
+    for event in sorted(unannounced - announced):
         where = ", ".join(f"{li.file}:{li.line}" for li in listeners if li.event == event)
         if event in script_names:
             continue  # dispatched by a script or hx-on handler in the templates
