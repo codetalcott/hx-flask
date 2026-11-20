@@ -490,3 +490,14 @@ def test_map_script_named_event_hides_hyperscript_listener_warning(make_app):
     body = """<div _="on ping add .x">a</div><script>el.dispatchEvent(new Event("ping"))</script>"""
     m = _listener_map(make_app, body)
     assert [li.event for li in m.listeners] == ["ping"] and m.warnings == []
+
+
+def test_map_hyperscript_send_names_the_event_it_announces(make_app):
+    body = (
+        """<div _="on click send poked to me end on poked add .x to me">a</div>"""
+        """<div data-script="on click trigger bumped end on bumped add .y">b</div>"""
+        """<div _="on click send nudged(n:1) to #x end on nudged add .z">c</div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert sorted(li.event for li in m.listeners) == ["bumped", "nudged", "poked"]
+    assert m.warnings == []

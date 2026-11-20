@@ -9,7 +9,11 @@
   `.trigger()` in both directions, and an `on archived` nothing announces gets
   the existing warning. Browser events (a full list, measured from Chromium's
   `on*` handlers) and `htmx:*` names are skipped. `DOM_EVENTS`, which
-  `hx-trigger` and `hx-on` use too, now holds that full list.
+  `hx-trigger` and `hx-on` use too, now holds that full list. A hyperscript
+  `send x` / `trigger x` counts as the script announcing `x`, so its own
+  listener is not reported as never announced. A hyperscript
+  `send x` / `trigger x` counts as the script announcing `x`, so its own
+  listener is not reported as never announced.
 - Lint rule `htmx2-event-name` reads JavaScript as well as `hx-on` and
   `hx-trigger`: quoted event names in `<script>`, `onclick`, Alpine's `@click`
   and `x-on:htmx:...`, hyperscript's `_`, and `.js` files, which `flask hx lint`

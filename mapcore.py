@@ -93,6 +93,8 @@ DOM_EVENTS |= {
     "visibilitychange", "volumechange", "waiting", "mousewheel",
 }
 # hyperscript: ``on <name>[(args)]`` opens a feature at the start of a script, after ``end`` or on a new line.
+# ``send <name>[(args)]`` / ``trigger <name>``, with or without ``to <target>``: events the script announces itself.
+_HS_SEND = re.compile(r"\b(?:send|trigger)\s+([\w:.-]+)")
 _HS_ON = re.compile(r"(?:^|\bend\b|\n)\s*on\s+(?:every\s+)?([\w:.-]+)(?:\(([^)]*)\))?")
 
 VERBS = {"render", "page", "fragment", "invalid", "redirect", "removed", "text", "navigate"}
@@ -212,6 +214,8 @@ def scan_templates(
             for attr, value in node.attrs.items():
                 if attr == "hx-on" or attr.startswith("hx-on:"):
                     script_names.update(_NAME.findall(value or ""))
+                if attr in HYPERSCRIPT_ATTRS:
+                    script_names.update(n for n in _HS_SEND.findall(value or "") if ":" not in n)
                 if value:
                     controls += _script_controls(name, node, value, None, resolve)
             if node.tag == "script" and node.text and not node.attrs.get("src"):
