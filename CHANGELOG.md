@@ -102,6 +102,11 @@
 
 ### Fixed
 
+- `flask hx map` reads an `hx-action` control's method as htmx 4.0.2 does: its
+  own `hx-method`, else an ancestor's `hx-method:inherited`, else its `method`
+  attribute, else GET. It read only the control's own `hx-method`, so
+  `<form method="post" hx-action=...>` was mapped as a GET. A submitting
+  button's `formmethod` is chosen at click time and not read.
 - `hx_vocab.HTMX2_EVENT_NAMES` has htmx 4's rename for every htmx 2 event:
   `htmx:load` (`htmx:after:init`, and the lint names `htmx.onLoad`),
   `htmx:beforeSend`, `htmx:timeout`, and the removed `htmx:xhr:*` and

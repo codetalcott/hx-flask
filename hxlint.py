@@ -166,14 +166,19 @@ class Node:
 
     def resolved(self, name: str) -> str | None:
         """htmx 4 resolution: own value, else an ancestor's ``name:inherited``."""
-        v = self.own(name)
-        if v is not None:
-            return v
-        for a in self.ancestors():
-            v = a.attrs.get(name + ":inherited")
-            if v is not None:
-                return v
-        return None
+        holder = self.resolving(name)
+        if holder is None:
+            return None
+        return holder.own(name) if holder is self else holder.attrs.get(name + ":inherited")
+
+    def resolving(self, name: str) -> Node | None:
+        """
+        The element whose attribute ``resolved(name)`` reads: this one, or the nearest ancestor
+        with ``name:inherited``. What ``hx-target="this"`` means: htmx 4 resolves it to that element.
+        """
+        if self.own(name) is not None:
+            return self
+        return next((a for a in self.ancestors() if a.attrs.get(name + ":inherited") is not None), None)
 
     def is_request(self) -> bool:
         return any(self.own(a) is not None for a in V.REQUEST_ATTRIBUTES)

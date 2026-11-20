@@ -170,7 +170,10 @@ htmx's own files (`htmx-4.0.0.js`, `hx-sse.js`, `htmx-2-compat.js`).
 
 The map's controls are `hx-*` attributes, boosted links and forms, and
 `htmx.ajax(verb, url, options)` calls with a literal verb, in a `<script>` or an
-attribute such as `@click`. htmx 4 scopes them: `target: document.body`, or no
+attribute such as `@click`. An `hx-action` control sends its own `hx-method`, else
+an ancestor's `hx-method:inherited`, else its `method` attribute
+(`<form method="post">`), else GET, as htmx 4.0.2 resolves it; the `formmethod`
+of the button that submits a form is chosen at click time and not read. htmx 4 scopes them: `target: document.body`, or no
 target and no source, is a full request. A `fetch()` with a literal URL that
 reaches a handler is listed under it, `(fetch: not checked)`.
 

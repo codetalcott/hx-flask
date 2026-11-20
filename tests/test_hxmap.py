@@ -524,3 +524,29 @@ def test_map_does_not_warn_about_a_browser_listener_nothing_announces(make_app):
     for body in ("""<div _="on mouseover add .x">x</div>""", """<div hx-on:close="x()">x</div>"""):
         m = _listener_map(make_app, body)
         assert m.warnings == [], (body, m.warnings)
+
+
+def test_an_hx_action_control_sends_the_method_htmx_4_resolves(make_app):
+    # htmx 4.0.2's #A(): its own hx-method, else an ancestor's hx-method:inherited, else its method attribute, else GET
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <button hx-action="{{ url_for('save') }}" hx-target="#box">none</button>
+            <button hx-action="{{ url_for('save') }}" hx-method="delete" hx-target="#box">own</button>
+            <div hx-method:inherited="put"><button hx-action="{{ url_for('save') }}" hx-target="#box">inherited</button></div>
+            <div hx-method="put"><button hx-action="{{ url_for('save') }}" hx-target="#box">plain ancestor</button></div>
+            <form method="post" hx-action="{{ url_for('save') }}" hx-target="#box"><button>form</button></form>
+            <form method="post" hx-method="patch" hx-action="{{ url_for('save') }}" hx-target="#box"><button>both</button></form>
+            <div id="box"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.route("/save", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def save():
+        return hx.render("index.html", partial="rows", items=[])
+
+    m = build_map(app)
+    assert [(c.line, c.method) for c in by(m.controls, endpoint="save")] == [
+        (2, "GET"), (3, "DELETE"), (4, "PUT"), (5, "GET"), (6, "POST"), (7, "PATCH"),
+    ]

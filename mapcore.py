@@ -26,9 +26,10 @@ a control that reaches a handler returning JSON, which htmx swaps as HTML.
 
 A control is an ``hx-*`` attribute, a boosted link or form, or a literal
 ``htmx.ajax(verb, url, {target})`` call in a script or an attribute such as
-Alpine's ``@click``. A ``fetch()`` to a handler is listed under it but not
-checked, except where the handler asks ``HX-Request-Type``, which fetch never
-sends.
+Alpine's ``@click``. An ``hx-action`` control sends what ``action_method`` reads,
+as htmx 4 does; the ``formmethod`` of a form's submit button is not read. A
+``fetch()`` to a handler is listed under it but not checked, except where the
+handler asks ``HX-Request-Type``, which fetch never sends.
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ __all__ = [
     "JSON_CALLS",
     "VERBS",
     "ESCAPE_HATCHES",
+    "action_method",
 ]
 
 URLFOR = "URLFOR:"
@@ -227,6 +229,16 @@ def scan_templates(
     return controls, listeners, script_names, boosting
 
 
+def action_method(node: Node) -> str:
+    """
+    The method an ``hx-action`` control sends, as htmx 4.0.2's ``#A()`` resolves it: its own
+    ``hx-method``, else the nearest ancestor's ``hx-method:inherited``, else its ``method`` attribute
+    (``<form method="post">``), else GET. htmx reads the submitting button's ``formmethod`` before the
+    ``method`` attribute; that is chosen at click time, so it is not read here.
+    """
+    return (node.resolved("hx-method") or node.attrs.get("method") or "GET").upper()
+
+
 def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | None:
     method = url = None
     boosted = False
@@ -237,7 +249,7 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
             break
     if url is None and node.own("hx-action") is not None:
         url = node.own("hx-action")
-        method = (node.own("hx-method") or "GET").upper()
+        method = action_method(node)
     if url is None and boosting and node.tag in ("a", "form") and node.resolved("hx-boost") != "false":
         if node.tag == "a":
             url, method = node.attrs.get("href"), "GET"
