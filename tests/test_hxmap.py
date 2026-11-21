@@ -594,11 +594,47 @@ def test_an_hx_trigger_named_like_a_hyperscript_observer_is_a_custom_event(make_
     assert any("event 'mutation' is listened for" in w for w in m.warnings)
 
 
-@pytest.mark.parametrize("trigger", ["sse:message", "sse:message from:body", "htmx:after:swap"])
-def test_map_reads_no_listener_for_a_colon_name_in_hx_trigger(make_app, trigger):
-    # an htmx or extension event (htmx 4's hx-sse fires sse:<name>), as the hyperscript reader skips one
-    m = _listener_map(make_app, f"""<div hx-get="/page" hx-trigger="{trigger}">x</div>""")
-    assert m.listeners == [] and m.warnings == []
+@pytest.mark.parametrize(
+    "body, event",
+    [
+        ("""<div hx-get="/page" hx-trigger="sse:message">x</div>""", "sse:message"),
+        ("""<div hx-get="/page" hx-trigger="sse:message from:body">x</div>""", "sse:message"),
+        ("""<div hx-get="/page" hx-trigger="htmx:after:swap">x</div>""", "htmx:after:swap"),
+        ("""<div _="on sse:message add .x to me">x</div>""", "sse:message"),
+    ],
+    ids=["extension-event", "extension-event-from-body", "htmx-event", "hyperscript"],
+)
+def test_a_colon_named_listener_is_never_asked_to_be_announced(make_app, body, event):
+    # htmx's own events and an extension's (htmx 4's hx-sse fires sse:<name>): browser-side, like `click`
+    m = _listener_map(make_app, body)
+    assert [(li.event, li.browser) for li in m.listeners] == [(event, True)]
+    assert m.warnings == []
+
+
+def _announces_contact_saved():
+    from hx import hx
+
+    return hx.page("page.html").trigger("contact:saved")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        """<div hx-get="/page" hx-trigger="contact:saved from:body">x</div>""",
+        """<div _="on contact:saved from body add .x to me">x</div>""",
+    ],
+    ids=["hx-trigger", "hyperscript"],
+)
+def test_a_colon_named_listener_pairs_with_a_trigger_of_that_name(make_app, body):
+    m = _listener_map(make_app, body, handler=_announces_contact_saved)
+    assert [li.event for li in m.listeners] == ["contact:saved"] and m.warnings == []
+
+
+def test_a_colon_named_trigger_nothing_listens_for_is_still_warned(make_app):
+    m = _listener_map(make_app, "<p>no listener</p>", handler=_announces_contact_saved)
+    assert m.warnings == [
+        "event 'contact:saved' is announced by _announces_contact_saved() but nothing in the templates listens for it."
+    ]
 
 
 @pytest.mark.parametrize(

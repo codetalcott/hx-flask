@@ -191,11 +191,12 @@ values; a `fetch()` to a handler that calls `hx.render` or `hx.invalid`, which
 answers fetch with the page; and an event announced or listened for on only one
 side. A listener is an `hx-trigger`, an `hx-on`, or a hyperscript `on <name>` in
 `_`, `script` or `data-script` or in an inline `<script type="text/hyperscript">`,
-behaviors included. A listener for a browser event, or for hyperscript's
-`on intersection`, `on mutation` or `on resize` (observers), is never asked to be
-announced; a name with a colon (`htmx:*`, an extension's `sse:message`) or built
-in the template (`on {{ name }}`) is not read as a listener. An event a script
-names (a quoted name in a `<script>` or `hx-on`, such as
+behaviors included. A listener for a browser event, for hyperscript's
+`on intersection`, `on mutation` or `on resize` (observers), or for a name with a
+colon (`htmx:*`, an extension's `sse:message`, a namespaced `contact:saved`) is
+never asked to be announced, and still pairs with a `.trigger()` of that name; a
+name built in the template (`on {{ name }}`) is not read as a listener. An event a
+script names (a quoted name in a `<script>` or `hx-on`, such as
 `addEventListener('x', ...)`, or a hyperscript `send x` / `trigger x`, even
 inside a quoted string) counts for both sides, since the scan cannot tell
 whether the script listens or sends; that can only hide a warning.

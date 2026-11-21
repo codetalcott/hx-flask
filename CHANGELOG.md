@@ -13,11 +13,12 @@
   announced: it still pairs with a `.trigger()` of that name (`close`,
   `message`), and only the "listened for but never announced" warning skips it.
   `DOM_EVENTS`, which `hx-trigger` and `hx-on` use too, now holds that full
-  list; the observers count in hyperscript only. A name with a colon, htmx's
-  own (`htmx:after:swap`) or an extension's (`sse:message`), is not read as a
-  listener, in `hx-trigger` as in hyperscript, so a handler that announces one
-  is warned as unheard; nor is a hyperscript event name built in the template
-  (`on {{ name }}`). A hyperscript `send x` / `trigger x` counts as the script
+  list; the observers count in hyperscript only. A listener whose name has a
+  colon, htmx's own (`htmx:after:swap`), an extension's (`sse:message`) or a
+  namespaced one (`contact:saved`), is never asked to be announced either, in
+  `hx-trigger`, `hx-on` and hyperscript, and pairs with a `.trigger()` of that
+  name. A hyperscript event name built in the template (`on {{ name }}`) is
+  not read as a listener. A hyperscript `send x` / `trigger x` counts as the script
   announcing `x`, so its own listener is not reported as never announced; one
   inside a quoted string (`put "send x" into me`) counts too, which can only
   hide a warning. The body of an inline `<script type="text/hyperscript">` is

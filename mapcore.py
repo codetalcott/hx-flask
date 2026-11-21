@@ -435,16 +435,16 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
     out = []
 
     def add(name: str, line: int | None = None, browser_side: set[str] = DOM_EVENTS) -> None:
-        out.append(Listener(file, node.line if line is None else line, node.describe(), name, browser=name in browser_side))
+        # A colon name is htmx's own (htmx:after:swap), an extension's (sse:message) or a namespaced custom
+        # event (contact:saved): it pairs with a .trigger() of that name, and is never asked to be announced.
+        browser = name in browser_side or ":" in name
+        out.append(Listener(file, node.line if line is None else line, node.describe(), name, browser=browser))
 
     trigger = node.own("hx-trigger")
     if trigger and JINJA not in trigger:
         try:
             for spec in parse_trigger_specs(trigger):
-                name = spec["name"].split("[", 1)[0]
-                # A colon name is htmx's own (htmx:after:swap) or an extension's (sse:message), as in hyperscript.
-                if ":" not in name:
-                    add(name)
+                add(spec["name"].split("[", 1)[0])
         except ValueError:
             pass
     for attr, value in node.attrs.items():
@@ -463,7 +463,7 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
         for match in _HS_ON.finditer(text):
             name = match.group(1)
             line = node.line if first_line is None else first_line + text.count("\n", 0, match.start(1))
-            if ":" not in name and JINJA not in name and (name, line) not in seen:
+            if JINJA not in name and (name, line) not in seen:
                 seen.add((name, line))
                 add(name, line, DOM_EVENTS | HYPERSCRIPT_OBSERVED)
     return out
