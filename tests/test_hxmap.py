@@ -2,6 +2,8 @@
 
 import io
 
+import pytest
+
 from hxmap import build_map, print_map
 
 
@@ -429,3 +431,266 @@ def test_by_template_says_who_renders_each_block(app):
     ]
     assert text.rstrip().endswith("hx map: 7 templates, 15 handlers")
     assert "[error]" not in text and "controls," not in text  # not the by-handler report as well
+
+
+def _listener_map(make_app, body, handler=None):
+    from hx import hx
+
+    app = make_app({"page.html": f"<html><body>{body}</body></html>"})
+
+    @app.get("/page")
+    def page():
+        return hx.page("page.html")
+
+    if handler:
+        app.post("/save")(handler)
+    return build_map(app)
+
+
+def _announces_saved():
+    from hx import hx
+
+    return hx.page("page.html").trigger("saved")
+
+
+def _announces_other():
+    from hx import hx
+
+    return hx.page("page.html").trigger("other")
+
+
+def test_map_pairs_hyperscript_listener_with_trigger(make_app):
+    m = _listener_map(make_app, """<div _="on saved from body add .flash to me">x</div>""", handler=_announces_saved)
+    assert m.warnings == [] and m.errors == []
+    assert [li.event for li in m.listeners] == ["saved"]
+
+
+def test_map_warns_when_hyperscript_listener_is_never_announced(make_app):
+    m = _listener_map(make_app, """<div _="on archived(id) log it end on click add .x">x</div>""")
+    assert [li.event for li in m.listeners if not li.browser] == ["archived"]
+    assert any("event 'archived' is listened for (page.html:" in w for w in m.warnings)
+
+
+def test_map_warns_when_trigger_has_only_a_hyperscript_listener_elsewhere(make_app):
+    m = _listener_map(make_app, """<p data-script="on every refresh log 1">x</p>""", handler=_announces_other)
+    assert "event 'other' is announced by _announces_other() but nothing in the templates listens for it." in m.warnings
+    assert any("event 'refresh' is listened for" in w for w in m.warnings)
+
+
+def test_unpaired_events_is_the_pairing_check_warns_from(make_app):
+    # dj-hx's start-up checks report the same pairing their own way, so check() and they share this one function
+    from mapcore import unpaired_events
+
+    body = (
+        """<p data-script="on every refresh log 1">x</p><div _="on ping add .x">a</div>"""
+        """<div _="on click add .y">b</div><script>el.dispatchEvent(new Event("ping"))</script>"""
+    )
+    m = _listener_map(make_app, body, handler=_announces_other)
+    unannounced, unheard = unpaired_events(m.handlers, m.listeners, m.script_names)
+    assert {event: [(li.file, li.element) for li in heard] for event, heard in unannounced.items()} == {
+        "refresh": [("page.html", "p")]  # not ping, which a script names, nor click, a browser event
+    }
+    assert {event: [h.label for h in by] for event, by in unheard.items()} == {"other": ["_announces_other()"]}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        """<script type="text/hyperscript">on saved from body log 1 end</script>""",
+        # a behavior's features may follow its name on the same line
+        """<script type="text/hyperscript">behavior Saver on saved from body log 1 end end</script><div _="install Saver"></div>""",
+        """<script type="text/hyperscript">behavior Saver(n) on saved from body log n end end</script>""",
+    ],
+    ids=["script-block", "behavior", "behavior-with-params"],
+)
+def test_map_reads_hyperscript_in_a_text_hyperscript_script(make_app, body):
+    m = _listener_map(make_app, body, handler=_announces_saved)
+    assert [li.event for li in m.listeners] == ["saved"] and m.warnings == []
+
+
+def test_a_hyperscript_script_listener_is_reported_at_its_own_line(make_app):
+    body = """<script type="text/hyperscript">
+behavior Archiver
+  on archived from body
+    log 1
+  end
+end
+</script>"""
+    m = _listener_map(make_app, body)
+    assert [(li.event, li.line) for li in m.listeners] == [("archived", 3)]
+    assert m.warnings == ["event 'archived' is listened for (page.html:3) but no handler announces it with .trigger() and no script names it."]
+
+
+def test_a_hyperscript_script_send_names_the_event_it_announces(make_app):
+    body = (
+        """<script type="text/hyperscript">on keyup[key is 'Escape'] from window send closeAll to body end</script>"""
+        """<div _="on closeAll from body remove me"></div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert "closeAll" in m.script_names and m.warnings == []
+
+
+def test_a_javascript_script_is_not_read_as_hyperscript(make_app):
+    body = """<script>
+/*
+ on saved from body: what the hyperscript version said
+*/
+</script>"""
+    m = _listener_map(make_app, body, handler=_announces_saved)
+    assert m.listeners == []
+    assert m.warnings == ["event 'saved' is announced by _announces_saved() but nothing in the templates listens for it."]
+
+
+def test_an_event_a_script_names_is_not_reported_as_unheard(make_app):
+    # the script may listen for it (addEventListener) or send it: the scan cannot tell which, so neither is warned
+    body = """<script>document.body.addEventListener('saved', () => location.reload())</script>"""
+    m = _listener_map(make_app, body, handler=_announces_saved)
+    assert m.listeners == [] and m.warnings == []
+
+
+def test_map_ignores_browser_events_and_htmx_events_in_hyperscript(make_app):
+    body = (
+        """<div _="on mouseover add .x">a</div>"""
+        """<div _="on pointerenter add .x end on canplay add .x end on touchcancel add .x">a</div>"""
+        """<div _="on htmx:afterSwap add .y">b</div>"""
+        """<div _="on click add .z end on keydown[key=='Enter'] add .w">c</div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert [li.event for li in m.listeners if not li.browser] == [] and m.warnings == []
+
+
+def test_map_script_named_event_hides_hyperscript_listener_warning(make_app):
+    body = """<div _="on ping add .x">a</div><script>el.dispatchEvent(new Event("ping"))</script>"""
+    m = _listener_map(make_app, body)
+    assert [li.event for li in m.listeners] == ["ping"] and m.warnings == []
+
+
+def test_map_hyperscript_send_names_the_event_it_announces(make_app):
+    body = (
+        """<div _="on click send poked to me end on poked add .x to me">a</div>"""
+        """<div data-script="on click trigger bumped end on bumped add .y">b</div>"""
+        """<div _="on click send nudged(n:1) to #x end on nudged add .z">c</div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert sorted(li.event for li in m.listeners if not li.browser) == ["bumped", "nudged", "poked"]
+    assert m.warnings == []
+
+
+def test_map_does_not_ask_for_hyperscript_observer_events_to_be_announced(make_app):
+    # _hyperscript 0.9.94's `on` feature turns intersection, mutation and resize into an observer, not a listener
+    body = (
+        """<div _="on intersection(intersecting) having threshold 0.5 if intersecting add .seen to me">a</div>"""
+        """<div _="on mutation of @data-count log 1">b</div><div _="on resize log 1">c</div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert [(li.event, li.browser) for li in m.listeners] == [("intersection", True), ("mutation", True), ("resize", True)]
+    assert m.warnings == []
+
+
+def test_an_hx_trigger_named_like_a_hyperscript_observer_is_a_custom_event(make_app):
+    # the observers are hyperscript's; htmx's own observer trigger is `intersect`
+    m = _listener_map(make_app, """<div hx-get="/page" hx-trigger="mutation from:body">x</div>""")
+    assert [(li.event, li.browser) for li in m.listeners] == [("mutation", False)]
+    assert any("event 'mutation' is listened for" in w for w in m.warnings)
+
+
+@pytest.mark.parametrize(
+    "body, event",
+    [
+        ("""<div hx-get="/page" hx-trigger="sse:message">x</div>""", "sse:message"),
+        ("""<div hx-get="/page" hx-trigger="sse:message from:body">x</div>""", "sse:message"),
+        ("""<div hx-get="/page" hx-trigger="htmx:after:swap">x</div>""", "htmx:after:swap"),
+        ("""<div _="on sse:message add .x to me">x</div>""", "sse:message"),
+    ],
+    ids=["extension-event", "extension-event-from-body", "htmx-event", "hyperscript"],
+)
+def test_a_colon_named_listener_is_never_asked_to_be_announced(make_app, body, event):
+    # htmx's own events and an extension's (htmx 4's hx-sse fires sse:<name>): browser-side, like `click`
+    m = _listener_map(make_app, body)
+    assert [(li.event, li.browser) for li in m.listeners] == [(event, True)]
+    assert m.warnings == []
+
+
+def _announces_contact_saved():
+    from hx import hx
+
+    return hx.page("page.html").trigger("contact:saved")
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        """<div hx-get="/page" hx-trigger="contact:saved from:body">x</div>""",
+        """<div _="on contact:saved from body add .x to me">x</div>""",
+    ],
+    ids=["hx-trigger", "hyperscript"],
+)
+def test_a_colon_named_listener_pairs_with_a_trigger_of_that_name(make_app, body):
+    m = _listener_map(make_app, body, handler=_announces_contact_saved)
+    assert [li.event for li in m.listeners] == ["contact:saved"] and m.warnings == []
+
+
+def test_a_colon_named_trigger_nothing_listens_for_is_still_warned(make_app):
+    m = _listener_map(make_app, "<p>no listener</p>", handler=_announces_contact_saved)
+    assert m.warnings == [
+        "event 'contact:saved' is announced by _announces_contact_saved() but nothing in the templates listens for it."
+    ]
+
+
+@pytest.mark.parametrize(
+    "script",
+    ["on {{ event_name }} from body add .seen to me", "on item-{{ pk }}-saved from body add .seen to me"],
+    ids=["whole-name", "part-of-a-name"],
+)
+def test_map_reads_no_listener_for_a_templated_hyperscript_event_name(make_app, script):
+    m = _listener_map(make_app, f"""<p _="{script}">x</p><script type="text/hyperscript">{script}</script>""")
+    assert m.listeners == [] and m.warnings == []
+
+
+def _announces_close():
+    from hx import hx
+
+    return hx.page("page.html").trigger("close")
+
+
+def test_map_pairs_browser_named_listeners_with_trigger(make_app):
+    for body in (
+        """<div hx-get="/page" hx-trigger="close">x</div>""",
+        """<div hx-on:close="alert(1)">x</div>""",
+        """<div _="on close from body add .x">x</div>""",
+    ):
+        m = _listener_map(make_app, body, handler=_announces_close)
+        assert m.warnings == [], (body, m.warnings)
+        assert [li.event for li in m.listeners] == ["close"]
+
+
+def test_map_does_not_warn_about_a_browser_listener_nothing_announces(make_app):
+    for body in ("""<div _="on mouseover add .x">x</div>""", """<div hx-on:close="x()">x</div>"""):
+        m = _listener_map(make_app, body)
+        assert m.warnings == [], (body, m.warnings)
+
+
+def test_an_hx_action_control_sends_the_method_htmx_4_resolves(make_app):
+    # htmx 4.0.2's #A(): its own hx-method, else an ancestor's hx-method:inherited, else its method attribute, else GET
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <button hx-action="{{ url_for('save') }}" hx-target="#box">none</button>
+            <button hx-action="{{ url_for('save') }}" hx-method="delete" hx-target="#box">own</button>
+            <div hx-method:inherited="put"><button hx-action="{{ url_for('save') }}" hx-target="#box">inherited</button></div>
+            <div hx-method="put"><button hx-action="{{ url_for('save') }}" hx-target="#box">plain ancestor</button></div>
+            <form method="post" hx-action="{{ url_for('save') }}" hx-target="#box"><button>form</button></form>
+            <form method="post" hx-method="patch" hx-action="{{ url_for('save') }}" hx-target="#box"><button>both</button></form>
+            <div id="box"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.route("/save", methods=["GET", "POST", "PUT", "PATCH", "DELETE"])
+    def save():
+        return hx.render("index.html", partial="rows", items=[])
+
+    m = build_map(app)
+    assert [(c.line, c.method) for c in by(m.controls, endpoint="save")] == [
+        (2, "GET"), (3, "DELETE"), (4, "PUT"), (5, "GET"), (6, "POST"), (7, "PATCH"),
+    ]

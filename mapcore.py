@@ -26,9 +26,10 @@ a control that reaches a handler returning JSON, which htmx swaps as HTML.
 
 A control is an ``hx-*`` attribute, a boosted link or form, or a literal
 ``htmx.ajax(verb, url, {target})`` call in a script or an attribute such as
-Alpine's ``@click``. A ``fetch()`` to a handler is listed under it but not
-checked, except where the handler asks ``HX-Request-Type``, which fetch never
-sends.
+Alpine's ``@click``. An ``hx-action`` control sends what ``action_method`` reads,
+as htmx 4 does; the ``formmethod`` of a form's submit button is not read. A
+``fetch()`` to a handler is listed under it but not checked, except where the
+handler asks ``HX-Request-Type``, which fetch never sends.
 """
 
 from __future__ import annotations
@@ -41,7 +42,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import hx_vocab as vocab
-from hxlint import JINJA, Node, parse, parse_trigger_specs
+from hxlint import HYPERSCRIPT_ATTRS, HYPERSCRIPT_TYPE, JINJA, Node, parse, parse_trigger_specs
 
 __all__ = [
     "URLFOR",
@@ -62,6 +63,8 @@ __all__ = [
     "JSON_CALLS",
     "VERBS",
     "ESCAPE_HATCHES",
+    "action_method",
+    "unpaired_events",
 ]
 
 URLFOR = "URLFOR:"
@@ -74,6 +77,36 @@ DOM_EVENTS = {
     "transitionend", "animationend", "wheel", "contextmenu", "drop", "dragover", "dragstart", "dragend", "paste",
     "copy", "cut", "select", "invalid", "resize", "hashchange", "popstate", "DOMContentLoaded",
 } | set(vocab.SPECIAL_TRIGGERS)
+# Every event a browser fires on its own, so a hyperscript ``on mouseover`` is not read as a custom event.
+# Source: the ``on*`` handler properties of window, document, HTMLElement, <video>, <dialog> and <input> in
+# the Chromium that Playwright 1.64.0 installs, plus the events that have no handler property (touch, composition,
+# focusin/out, orientation, DOMContentLoaded, fullscreen/visibility variants). Measured 2026-11-20.
+DOM_EVENTS |= {
+    "abort", "afterprint", "animationcancel", "animationiteration", "animationstart", "auxclick", "beforeinput",
+    "beforematch", "beforeprint", "beforetoggle", "beforeunload", "cancel", "canplay", "canplaythrough", "close",
+    "compositionend", "compositionstart", "compositionupdate", "contextlost", "contextrestored", "cuechange", "drag",
+    "dragenter", "dragleave", "durationchange", "emptied", "ended", "error", "formdata", "fullscreenchange",
+    "fullscreenerror", "gamepadconnected", "gamepaddisconnected", "gotpointercapture", "languagechange", "load",
+    "loadeddata", "loadedmetadata", "loadstart", "lostpointercapture", "message", "messageerror", "offline", "online",
+    "orientationchange", "pagehide", "pagereveal", "pageshow", "pageswap", "pause", "play", "playing", "pointercancel",
+    "pointerenter", "pointerleave", "pointerlockchange", "pointerlockerror", "pointerout", "pointerover", "progress",
+    "ratechange", "readystatechange", "rejectionhandled", "resume", "scrollend", "securitypolicyviolation", "seeked",
+    "seeking", "selectionchange", "selectstart", "slotchange", "stalled", "storage", "suspend", "timeupdate",
+    "touchcancel", "transitioncancel", "transitionrun", "transitionstart", "unhandledrejection", "unload",
+    "visibilitychange", "volumechange", "waiting", "mousewheel",
+}
+# hyperscript's ``on intersection``, ``on mutation`` and ``on resize`` set up an IntersectionObserver, a
+# MutationObserver and a ResizeObserver: browser-side, never announced by a handler. Read from the ``on``
+# feature's parser in _hyperscript 0.9.94 (dist/_hyperscript.min.js). They mean this in hyperscript only.
+HYPERSCRIPT_OBSERVED = {"intersection", "mutation", "resize"}
+# hyperscript: ``on <name>[(args)]`` opens a feature at the start of a script, after ``end``, on a new line, or
+# after ``behavior <Name>[(params)]``, whose features may follow on the same line.
+# ``send <name>[(args)]`` / ``trigger <name>``, with or without ``to <target>``: events the script announces itself.
+# It matches inside a quoted string too (``put "send x" into me``); that can only hide a warning.
+_HS_SEND = re.compile(r"\b(?:send|trigger)\s+([\w:.-]+)")
+_HS_ON = re.compile(
+    r"(?:^|\bend\b|\n|\bbehavior\s+[\w.]+(?:\([^)]*\))?)\s*on\s+(?:every\s+)?([\w:.-]+)(?:\(([^)]*)\))?"
+)
 
 VERBS = {"render", "page", "fragment", "invalid", "redirect", "removed", "text", "navigate"}
 PAGE_VERBS = {"page"}
@@ -118,6 +151,9 @@ class Listener:
     line: int
     element: str
     event: str
+    # A browser event name (click, close, ...): it can pair with a ``.trigger()`` of the same name, but nothing
+    # is warned about when no handler announces it, because the browser does.
+    browser: bool = False
 
 
 @dataclass
@@ -189,6 +225,8 @@ def scan_templates(
             control = _control_for(name, node, boosting, resolve)
             if control:
                 controls.append(control)
+            for text, _ in _hyperscript(node):
+                script_names.update(n for n in _HS_SEND.findall(text) if ":" not in n)
             for attr, value in node.attrs.items():
                 if attr == "hx-on" or attr.startswith("hx-on:"):
                     script_names.update(_NAME.findall(value or ""))
@@ -198,6 +236,28 @@ def scan_templates(
                 controls += _script_controls(name, node, node.text, node.text_line, resolve)
             listeners += _listeners_for(name, node)
     return controls, listeners, script_names, boosting
+
+
+def _hyperscript(node: Node) -> list[tuple[str, int | None]]:
+    """
+    The hyperscript a node carries, with the line it starts on: its ``_``, ``script`` and ``data-script``
+    attributes (None: the node's own line), and the body of a ``<script type="text/hyperscript">``,
+    where behaviors are defined.
+    """
+    found = [(node.attrs.get(attr) or "", None) for attr in HYPERSCRIPT_ATTRS]
+    if node.tag == "script" and node.attrs.get("type") == HYPERSCRIPT_TYPE and node.text:
+        found.append((node.text, node.text_line))
+    return found
+
+
+def action_method(node: Node) -> str:
+    """
+    The method an ``hx-action`` control sends, as htmx 4.0.2's ``#A()`` resolves it: its own
+    ``hx-method``, else the nearest ancestor's ``hx-method:inherited``, else its ``method`` attribute
+    (``<form method="post">``), else GET. htmx reads the submitting button's ``formmethod`` before the
+    ``method`` attribute; that is chosen at click time, so it is not read here.
+    """
+    return (node.resolved("hx-method") or node.attrs.get("method") or "GET").upper()
 
 
 def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | None:
@@ -210,7 +270,7 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
             break
     if url is None and node.own("hx-action") is not None:
         url = node.own("hx-action")
-        method = (node.own("hx-method") or "GET").upper()
+        method = action_method(node)
     if url is None and boosting and node.tag in ("a", "form") and node.resolved("hx-boost") != "false":
         if node.tag == "a":
             url, method = node.attrs.get("href"), "GET"
@@ -373,13 +433,18 @@ def resolve_path(url: str) -> str | None:
 
 def _listeners_for(file: str, node: Node) -> list[Listener]:
     out = []
+
+    def add(name: str, line: int | None = None, browser_side: set[str] = DOM_EVENTS) -> None:
+        # A colon name is htmx's own (htmx:after:swap), an extension's (sse:message) or a namespaced custom
+        # event (contact:saved): it pairs with a .trigger() of that name, and is never asked to be announced.
+        browser = name in browser_side or ":" in name
+        out.append(Listener(file, node.line if line is None else line, node.describe(), name, browser=browser))
+
     trigger = node.own("hx-trigger")
     if trigger and JINJA not in trigger:
         try:
             for spec in parse_trigger_specs(trigger):
-                name = spec["name"].split("[", 1)[0]
-                if name not in DOM_EVENTS and not name.startswith("htmx:"):
-                    out.append(Listener(file, node.line, node.describe(), name))
+                add(spec["name"].split("[", 1)[0])
         except ValueError:
             pass
     for attr, value in node.attrs.items():
@@ -387,12 +452,20 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
             for part in re.split(r";(?=[^;]*->)", value):
                 if "->" in part:
                     name = part.split("->", 1)[0].strip().split()[0].split("[", 1)[0]
-                    if name not in DOM_EVENTS and not name.startswith("htmx:"):
-                        out.append(Listener(file, node.line, node.describe(), name))
+                    if not name.startswith("htmx:"):
+                        add(name)
         elif attr.startswith("hx-on:") and not attr.startswith("hx-on::"):
             name = attr[len("hx-on:"):]
-            if name not in DOM_EVENTS and not name.startswith("htmx:"):
-                out.append(Listener(file, node.line, node.describe(), name))
+            if not name.startswith("htmx:"):
+                add(name)
+    seen = set()
+    for text, first_line in _hyperscript(node):
+        for match in _HS_ON.finditer(text):
+            name = match.group(1)
+            line = node.line if first_line is None else first_line + text.count("\n", 0, match.start(1))
+            if JINJA not in name and (name, line) not in seen:
+                seen.add((name, line))
+                add(name, line, DOM_EVENTS | HYPERSCRIPT_OBSERVED)
     return out
 
 
@@ -699,17 +772,41 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
     for h in sorted(handlers.values(), key=lambda h: h.endpoint):
         if h.methods == {"DELETE"}:
             delete_reads_body(h)  # no control needs to resolve: the route itself is DELETE-only
-    announced = {e for h in handlers.values() for e in h.announces}
-    listened = {li.event for li in listeners}
-    for event in sorted(listened - announced):
-        where = ", ".join(f"{li.file}:{li.line}" for li in listeners if li.event == event)
-        if event in script_names:
-            continue  # dispatched by a script or hx-on handler in the templates
+    unannounced, unheard = unpaired_events(handlers, listeners, script_names)
+    for event, heard in unannounced.items():
+        where = ", ".join(f"{li.file}:{li.line}" for li in heard)
         m.warnings.append(f"event '{event}' is listened for ({where}) but no handler announces it with .trigger() and no script names it.")
-    for event in sorted(announced - listened):
-        w = ", ".join(h.label for h in handlers.values() if event in h.announces)
+    for event, by in unheard.items():
+        w = ", ".join(h.label for h in by)
         m.warnings.append(f"event '{event}' is announced by {w} but nothing in the templates listens for it.")
     return m
+
+
+def unpaired_events(
+    handlers: dict[str, Handler], listeners: list[Listener], script_names: set[str]
+) -> tuple[dict[str, list[Listener]], dict[str, list[Handler]]]:
+    """
+    The events that do not pair, as ``(unannounced, unheard)``, each sorted by event name.
+    ``unannounced`` maps an event something listens for to its listeners, when no handler
+    announces it and no script names it; a browser event (``Listener.browser``) is never asked
+    to be announced. ``unheard`` maps an event a handler announces to the handlers announcing
+    it, when nothing in the templates listens for it and no script names it. A script names an
+    event with a quoted name in a ``<script>`` or ``hx-on`` (``addEventListener('x', ...)``,
+    ``dispatchEvent(new Event('x'))``), or with a hyperscript ``send x`` / ``trigger x``; which
+    side of the event the script is on cannot be read, so it counts for both.
+    ``check`` warns on both; a framework adapter can report them its own way.
+    """
+    announced = {e for h in handlers.values() for e in h.announces}
+    listened = {li.event for li in listeners}
+    custom = {li.event for li in listeners if not li.browser}
+    unannounced = {
+        event: [li for li in listeners if li.event == event] for event in sorted(custom - announced - script_names)
+    }
+    unheard = {
+        event: [h for h in handlers.values() if event in h.announces]
+        for event in sorted(announced - listened - script_names)
+    }
+    return unannounced, unheard
 
 
 def format_map(m: Map, check_: bool = True) -> str:

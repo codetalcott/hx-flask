@@ -289,3 +289,19 @@ def test_the_lint_hook_is_wired_into_after_request(make_app):
 
     with pytest.raises(HxLintError, match="swap-style-case"):
         app.test_client().get("/", headers=PARTIAL)
+
+
+def test_resolving_names_the_element_whose_attribute_resolved_reads():
+    from hxlint import parse
+
+    root, _ = parse(
+        '<div id="outer" hx-target:inherited="this" hx-target="#plain" hx-swap="outerHTML">'
+        '<p id="mid"><button id="inner">a</button><button id="own" hx-target="#x">b</button></p></div>'
+    )
+    outer = root.children[0]
+    mid = outer.children[0]
+    inner, own = mid.children
+    assert (inner.resolving("hx-target"), inner.resolved("hx-target")) == (outer, "this")  # the :inherited one
+    assert (own.resolving("hx-target"), own.resolved("hx-target")) == (own, "#x")
+    assert (outer.resolving("hx-target"), outer.resolved("hx-target")) == (outer, "#plain")  # plain before :inherited
+    assert (mid.resolving("hx-swap"), mid.resolved("hx-swap")) == (None, None)  # a plain one above does not reach it

@@ -4,6 +4,30 @@
 
 ### Added
 
+- `flask hx map` reads hyperscript listeners (`on saved from body`, in `_`, `script` or
+  `data-script`) as it reads `hx-trigger` and `hx-on`: they pair with
+  `.trigger()` in both directions, and an `on archived` nothing announces gets
+  the existing warning. A listener for a browser event (a full list, measured
+  from Chromium's `on*` handlers), or for one of hyperscript's observers
+  (`on intersection`, `on mutation`, `on resize`), is never asked to be
+  announced: it still pairs with a `.trigger()` of that name (`close`,
+  `message`), and only the "listened for but never announced" warning skips it.
+  `DOM_EVENTS`, which `hx-trigger` and `hx-on` use too, now holds that full
+  list; the observers count in hyperscript only. A listener whose name has a
+  colon, htmx's own (`htmx:after:swap`), an extension's (`sse:message`) or a
+  namespaced one (`contact:saved`), is never asked to be announced either, in
+  `hx-trigger`, `hx-on` and hyperscript, and pairs with a `.trigger()` of that
+  name. A hyperscript event name built in the template (`on {{ name }}`) is
+  not read as a listener. A hyperscript `send x` / `trigger x` counts as the script
+  announcing `x`, so its own listener is not reported as never announced; one
+  inside a quoted string (`put "send x" into me`) counts too, which can only
+  hide a warning. The body of an inline `<script type="text/hyperscript">` is
+  read the same way, behaviors included
+  (`behavior Saver on saved ... end end`), each listener at its own line. An
+  event a script names, a quoted name in a `<script>` or `hx-on`
+  (`addEventListener('saved', ...)`) or a hyperscript `send`, is not reported
+  as never listened for either: the scan cannot tell which side the script is
+  on. `mapcore.unpaired_events()` returns the pairing `check()` warns from.
 - Lint rule `htmx2-event-name` reads JavaScript as well as `hx-on` and
   `hx-trigger`: quoted event names in `<script>`, `onclick`, Alpine's `@click`
   and `x-on:htmx:...`, hyperscript's `_`, and `.js` files, which `flask hx lint`
@@ -90,6 +114,11 @@
 
 ### Fixed
 
+- `flask hx map` reads an `hx-action` control's method as htmx 4.0.2 does: its
+  own `hx-method`, else an ancestor's `hx-method:inherited`, else its `method`
+  attribute, else GET. It read only the control's own `hx-method`, so
+  `<form method="post" hx-action=...>` was mapped as a GET. A submitting
+  button's `formmethod` is chosen at click time and not read.
 - `hx_vocab.HTMX2_EVENT_NAMES` has htmx 4's rename for every htmx 2 event:
   `htmx:load` (`htmx:after:init`, and the lint names `htmx.onLoad`),
   `htmx:beforeSend`, `htmx:timeout`, and the removed `htmx:xhr:*` and

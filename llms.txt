@@ -170,9 +170,13 @@ htmx's own files (`htmx-4.0.0.js`, `hx-sse.js`, `htmx-2-compat.js`).
 
 The map's controls are `hx-*` attributes, boosted links and forms, and
 `htmx.ajax(verb, url, options)` calls with a literal verb, in a `<script>` or an
-attribute such as `@click`. htmx 4 scopes them: `target: document.body`, or no
-target and no source, is a full request. A `fetch()` with a literal URL that
-reaches a handler is listed under it, `(fetch: not checked)`.
+attribute such as `@click`. htmx 4 scopes an `htmx.ajax` call: `target:
+document.body`, or no target and no source, is a full request. An `hx-action`
+control sends its own `hx-method`, else an ancestor's `hx-method:inherited`,
+else its `method` attribute (`<form method="post">`), else GET, as htmx 4.0.2
+resolves it; the `formmethod` of the button that submits a form is chosen at
+click time and not read. A `fetch()` with a literal URL that reaches a handler
+is listed under it, `(fetch: not checked)`.
 
 The map errors on a partial control reaching a page-only handler, a full control
 reaching a fragment-only one, a URL that resolves to nothing, a handler that
@@ -185,9 +189,20 @@ hx verb, or that returns JSON on some branch and has no verb; a handler that cal
 DELETE control without `hx-include="closest form"` whose handler reads request
 values; a `fetch()` to a handler that calls `hx.render` or `hx.invalid`, which
 answers fetch with the page; and an event announced or listened for on only one
-side. `hx.navigate` says nothing about shape: a handler that calls it and
-`hx.page` is still checked as page-only, and its return does not hide a JSON
-return. `--by-template` inverts it: every template and block a handler names, the
+side. A listener is an `hx-trigger`, an `hx-on`, or a hyperscript `on <name>` in
+`_`, `script` or `data-script` or in an inline `<script type="text/hyperscript">`,
+behaviors included. A listener for a browser event, for hyperscript's
+`on intersection`, `on mutation` or `on resize` (observers), or for a name with a
+colon (`htmx:*`, an extension's `sse:message`, a namespaced `contact:saved`) is
+never asked to be announced, and still pairs with a `.trigger()` of that name; a
+name built in the template (`on {{ name }}`) is not read as a listener. An event a
+script names (a quoted name in a `<script>` or `hx-on`, such as
+`addEventListener('x', ...)`, or a hyperscript `send x` / `trigger x`, even
+inside a quoted string) counts for both sides, since the scan cannot tell
+whether the script listens or sends; that can only hide a warning.
+`hx.navigate` says nothing about shape: a handler that calls it and `hx.page` is
+still checked as page-only, and its return does not hide a JSON return.
+`--by-template` inverts it: every template and block a handler names, the
 handlers that render it, and the controls that reach them, for when you are
 editing a block and need to know who serves it.
 
