@@ -17,11 +17,11 @@
   own (`htmx:after:swap`) or an extension's (`sse:message`), is not read as a
   listener, in `hx-trigger` as in hyperscript, so a handler that announces one
   is warned as unheard; nor is a hyperscript event name built in the template
-  (`on {{ name }}`). A hyperscript
-  `send x` / `trigger x` counts as the script announcing `x`, so its own
-  listener is not reported as never announced; one inside a quoted string
-  (`put "send x" into me`) counts too, which can only hide a warning. The body
-  of an inline `<script type="text/hyperscript">` is read the same way, behaviors included
+  (`on {{ name }}`). A hyperscript `send x` / `trigger x` counts as the script
+  announcing `x`, so its own listener is not reported as never announced; one
+  inside a quoted string (`put "send x" into me`) counts too, which can only
+  hide a warning. The body of an inline `<script type="text/hyperscript">` is
+  read the same way, behaviors included
   (`behavior Saver on saved ... end end`), each listener at its own line. An
   event a script names, a quoted name in a `<script>` or `hx-on`
   (`addEventListener('saved', ...)`) or a hyperscript `send`, is not reported

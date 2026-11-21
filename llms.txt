@@ -200,7 +200,8 @@ names (a quoted name in a `<script>` or `hx-on`, such as
 inside a quoted string) counts for both sides, since the scan cannot tell
 whether the script listens or sends; that can only hide a warning.
 `hx.navigate` says nothing about shape: a handler that calls it and `hx.page` is
-still checked as page-only, and its return does not hide a JSON return. `--by-template` inverts it: every template and block a handler names, the
+still checked as page-only, and its return does not hide a JSON return.
+`--by-template` inverts it: every template and block a handler names, the
 handlers that render it, and the controls that reach them, for when you are
 editing a block and need to know who serves it.
 
