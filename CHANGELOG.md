@@ -7,14 +7,21 @@
 - `flask hx map` reads hyperscript listeners (`on saved from body`, in `_`, `script` or
   `data-script`) as it reads `hx-trigger` and `hx-on`: they pair with
   `.trigger()` in both directions, and an `on archived` nothing announces gets
-  the existing warning. Browser events (a full list, measured from Chromium's
-  `on*` handlers) and `htmx:*` names are skipped. `DOM_EVENTS`, which
-  `hx-trigger` and `hx-on` use too, now holds that full list. A listener with a
-  browser event's name (`close`, `message`) still pairs with a `.trigger()` of
-  that name; only the "listened for but never announced" warning skips it. A hyperscript
+  the existing warning. A listener for a browser event (a full list, measured
+  from Chromium's `on*` handlers), or for one of hyperscript's observers
+  (`on intersection`, `on mutation`, `on resize`), is never asked to be
+  announced: it still pairs with a `.trigger()` of that name (`close`,
+  `message`), and only the "listened for but never announced" warning skips it.
+  `DOM_EVENTS`, which `hx-trigger` and `hx-on` use too, now holds that full
+  list; the observers count in hyperscript only. A name with a colon, htmx's
+  own (`htmx:after:swap`) or an extension's (`sse:message`), is not read as a
+  listener, in `hx-trigger` as in hyperscript, so a handler that announces one
+  is warned as unheard; nor is a hyperscript event name built in the template
+  (`on {{ name }}`). A hyperscript
   `send x` / `trigger x` counts as the script announcing `x`, so its own
-  listener is not reported as never announced. The body of a
-  `<script type="text/hyperscript">` is read the same way, behaviors included
+  listener is not reported as never announced; one inside a quoted string
+  (`put "send x" into me`) counts too, which can only hide a warning. The body
+  of an inline `<script type="text/hyperscript">` is read the same way, behaviors included
   (`behavior Saver on saved ... end end`), each listener at its own line. An
   event a script names, a quoted name in a `<script>` or `hx-on`
   (`addEventListener('saved', ...)`) or a hyperscript `send`, is not reported

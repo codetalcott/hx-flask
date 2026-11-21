@@ -79,7 +79,7 @@ DOM_EVENTS = {
 } | set(vocab.SPECIAL_TRIGGERS)
 # Every event a browser fires on its own, so a hyperscript ``on mouseover`` is not read as a custom event.
 # Source: the ``on*`` handler properties of window, document, HTMLElement, <video>, <dialog> and <input> in
-# Chromium 1.64.0's build (Playwright), plus the events that have no handler property (touch, composition,
+# the Chromium that Playwright 1.64.0 installs, plus the events that have no handler property (touch, composition,
 # focusin/out, orientation, DOMContentLoaded, fullscreen/visibility variants). Measured 2026-11-20.
 DOM_EVENTS |= {
     "abort", "afterprint", "animationcancel", "animationiteration", "animationstart", "auxclick", "beforeinput",
@@ -95,9 +95,14 @@ DOM_EVENTS |= {
     "touchcancel", "transitioncancel", "transitionrun", "transitionstart", "unhandledrejection", "unload",
     "visibilitychange", "volumechange", "waiting", "mousewheel",
 }
+# hyperscript's ``on intersection``, ``on mutation`` and ``on resize`` set up an IntersectionObserver, a
+# MutationObserver and a ResizeObserver: browser-side, never announced by a handler. Read from the ``on``
+# feature's parser in _hyperscript 0.9.94 (dist/_hyperscript.min.js). They mean this in hyperscript only.
+HYPERSCRIPT_OBSERVED = {"intersection", "mutation", "resize"}
 # hyperscript: ``on <name>[(args)]`` opens a feature at the start of a script, after ``end``, on a new line, or
 # after ``behavior <Name>[(params)]``, whose features may follow on the same line.
 # ``send <name>[(args)]`` / ``trigger <name>``, with or without ``to <target>``: events the script announces itself.
+# It matches inside a quoted string too (``put "send x" into me``); that can only hide a warning.
 _HS_SEND = re.compile(r"\b(?:send|trigger)\s+([\w:.-]+)")
 _HS_ON = re.compile(
     r"(?:^|\bend\b|\n|\bbehavior\s+[\w.]+(?:\([^)]*\))?)\s*on\s+(?:every\s+)?([\w:.-]+)(?:\(([^)]*)\))?"
@@ -429,15 +434,16 @@ def resolve_path(url: str) -> str | None:
 def _listeners_for(file: str, node: Node) -> list[Listener]:
     out = []
 
-    def add(name: str, line: int | None = None) -> None:
-        out.append(Listener(file, node.line if line is None else line, node.describe(), name, browser=name in DOM_EVENTS))
+    def add(name: str, line: int | None = None, browser_side: set[str] = DOM_EVENTS) -> None:
+        out.append(Listener(file, node.line if line is None else line, node.describe(), name, browser=name in browser_side))
 
     trigger = node.own("hx-trigger")
     if trigger and JINJA not in trigger:
         try:
             for spec in parse_trigger_specs(trigger):
                 name = spec["name"].split("[", 1)[0]
-                if not name.startswith("htmx:"):
+                # A colon name is htmx's own (htmx:after:swap) or an extension's (sse:message), as in hyperscript.
+                if ":" not in name:
                     add(name)
         except ValueError:
             pass
@@ -457,9 +463,9 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
         for match in _HS_ON.finditer(text):
             name = match.group(1)
             line = node.line if first_line is None else first_line + text.count("\n", 0, match.start(1))
-            if ":" not in name and (name, line) not in seen:
+            if ":" not in name and JINJA not in name and (name, line) not in seen:
                 seen.add((name, line))
-                add(name, line)
+                add(name, line, DOM_EVENTS | HYPERSCRIPT_OBSERVED)
     return out
 
 

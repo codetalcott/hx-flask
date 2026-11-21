@@ -576,6 +576,41 @@ def test_map_hyperscript_send_names_the_event_it_announces(make_app):
     assert m.warnings == []
 
 
+def test_map_does_not_ask_for_hyperscript_observer_events_to_be_announced(make_app):
+    # _hyperscript 0.9.94's `on` feature turns intersection, mutation and resize into an observer, not a listener
+    body = (
+        """<div _="on intersection(intersecting) having threshold 0.5 if intersecting add .seen to me">a</div>"""
+        """<div _="on mutation of @data-count log 1">b</div><div _="on resize log 1">c</div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert [(li.event, li.browser) for li in m.listeners] == [("intersection", True), ("mutation", True), ("resize", True)]
+    assert m.warnings == []
+
+
+def test_an_hx_trigger_named_like_a_hyperscript_observer_is_a_custom_event(make_app):
+    # the observers are hyperscript's; htmx's own observer trigger is `intersect`
+    m = _listener_map(make_app, """<div hx-get="/page" hx-trigger="mutation from:body">x</div>""")
+    assert [(li.event, li.browser) for li in m.listeners] == [("mutation", False)]
+    assert any("event 'mutation' is listened for" in w for w in m.warnings)
+
+
+@pytest.mark.parametrize("trigger", ["sse:message", "sse:message from:body", "htmx:after:swap"])
+def test_map_reads_no_listener_for_a_colon_name_in_hx_trigger(make_app, trigger):
+    # an htmx or extension event (htmx 4's hx-sse fires sse:<name>), as the hyperscript reader skips one
+    m = _listener_map(make_app, f"""<div hx-get="/page" hx-trigger="{trigger}">x</div>""")
+    assert m.listeners == [] and m.warnings == []
+
+
+@pytest.mark.parametrize(
+    "script",
+    ["on {{ event_name }} from body add .seen to me", "on item-{{ pk }}-saved from body add .seen to me"],
+    ids=["whole-name", "part-of-a-name"],
+)
+def test_map_reads_no_listener_for_a_templated_hyperscript_event_name(make_app, script):
+    m = _listener_map(make_app, f"""<p _="{script}">x</p><script type="text/hyperscript">{script}</script>""")
+    assert m.listeners == [] and m.warnings == []
+
+
 def _announces_close():
     from hx import hx
 
