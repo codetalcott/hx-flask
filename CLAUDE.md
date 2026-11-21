@@ -20,7 +20,8 @@ The sibling project [dj-hx](https://github.com/codetalcott/dj-hx) **vendors `hxl
 and `mapcore.py` from here** (its `tools/sync_shared.py` rewrites the import lines). Keep those three
 free of Flask imports and keep `mapcore`'s `scan_function` / `check` calls compatible with
 `dj_hx/hxmap.py`; dj-hx's interaction checks also call `mapcore.action_method`,
-`hxlint.Node.resolved` / `resolving` and `hxlint.parse_swap_spec`. After changing one, run the sync script in dj-hx and its suite.
+`hxlint.Node.resolved` / `resolving` and `hxlint.parse_swap_spec`, and its event-pairing checks call
+`mapcore.unpaired_events`, the pairing `check` warns from. After changing one, run the sync script in dj-hx and its suite.
 `tests/test_shared_core.py` here fails until the copies match, when dj-hx is checked out at
 `~/projects/dj-hx` (or `$DJ_HX`), and is skipped otherwise.
 

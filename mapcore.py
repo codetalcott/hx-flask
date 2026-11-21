@@ -64,6 +64,7 @@ __all__ = [
     "VERBS",
     "ESCAPE_HATCHES",
     "action_method",
+    "unpaired_events",
 ]
 
 URLFOR = "URLFOR:"
@@ -749,18 +750,35 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
     for h in sorted(handlers.values(), key=lambda h: h.endpoint):
         if h.methods == {"DELETE"}:
             delete_reads_body(h)  # no control needs to resolve: the route itself is DELETE-only
-    announced = {e for h in handlers.values() for e in h.announces}
-    listened = {li.event for li in listeners}
-    unannounced = {li.event for li in listeners if not li.browser}
-    for event in sorted(unannounced - announced):
-        where = ", ".join(f"{li.file}:{li.line}" for li in listeners if li.event == event)
-        if event in script_names:
-            continue  # dispatched by a script or hx-on handler in the templates
+    unannounced, unheard = unpaired_events(handlers, listeners, script_names)
+    for event, heard in unannounced.items():
+        where = ", ".join(f"{li.file}:{li.line}" for li in heard)
         m.warnings.append(f"event '{event}' is listened for ({where}) but no handler announces it with .trigger() and no script names it.")
-    for event in sorted(announced - listened):
-        w = ", ".join(h.label for h in handlers.values() if event in h.announces)
+    for event, by in unheard.items():
+        w = ", ".join(h.label for h in by)
         m.warnings.append(f"event '{event}' is announced by {w} but nothing in the templates listens for it.")
     return m
+
+
+def unpaired_events(
+    handlers: dict[str, Handler], listeners: list[Listener], script_names: set[str]
+) -> tuple[dict[str, list[Listener]], dict[str, list[Handler]]]:
+    """
+    The events that do not pair, as ``(unannounced, unheard)``, each sorted by event name.
+    ``unannounced`` maps an event something listens for to its listeners, when no handler
+    announces it and no script or ``hx-on`` handler in the templates names it; a browser event
+    (``Listener.browser``) is never asked to be announced. ``unheard`` maps an event a handler
+    announces to the handlers announcing it, when nothing in the templates listens for it.
+    ``check`` warns on both; a framework adapter can report them its own way.
+    """
+    announced = {e for h in handlers.values() for e in h.announces}
+    listened = {li.event for li in listeners}
+    custom = {li.event for li in listeners if not li.browser}
+    unannounced = {
+        event: [li for li in listeners if li.event == event] for event in sorted(custom - announced - script_names)
+    }
+    unheard = {event: [h for h in handlers.values() if event in h.announces] for event in sorted(announced - listened)}
+    return unannounced, unheard
 
 
 def format_map(m: Map, check_: bool = True) -> str:

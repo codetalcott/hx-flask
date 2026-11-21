@@ -475,6 +475,22 @@ def test_map_warns_when_trigger_has_only_a_hyperscript_listener_elsewhere(make_a
     assert any("event 'refresh' is listened for" in w for w in m.warnings)
 
 
+def test_unpaired_events_is_the_pairing_check_warns_from(make_app):
+    # dj-hx's start-up checks report the same pairing their own way, so check() and they share this one function
+    from mapcore import unpaired_events
+
+    body = (
+        """<p data-script="on every refresh log 1">x</p><div _="on ping add .x">a</div>"""
+        """<div _="on click add .y">b</div><script>el.dispatchEvent(new Event("ping"))</script>"""
+    )
+    m = _listener_map(make_app, body, handler=_announces_other)
+    unannounced, unheard = unpaired_events(m.handlers, m.listeners, m.script_names)
+    assert {event: [(li.file, li.element) for li in heard] for event, heard in unannounced.items()} == {
+        "refresh": [("page.html", "p")]  # not ping, which a script names, nor click, a browser event
+    }
+    assert {event: [h.label for h in by] for event, by in unheard.items()} == {"other": ["_announces_other()"]}
+
+
 def test_map_ignores_browser_events_and_htmx_events_in_hyperscript(make_app):
     body = (
         """<div _="on mouseover add .x">a</div>"""
