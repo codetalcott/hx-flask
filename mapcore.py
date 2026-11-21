@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import hx_vocab as vocab
-from hxlint import HYPERSCRIPT_ATTRS, JINJA, Node, parse, parse_trigger_specs
+from hxlint import HYPERSCRIPT_ATTRS, HYPERSCRIPT_TYPE, JINJA, Node, parse, parse_trigger_specs
 
 __all__ = [
     "URLFOR",
@@ -95,10 +95,13 @@ DOM_EVENTS |= {
     "touchcancel", "transitioncancel", "transitionrun", "transitionstart", "unhandledrejection", "unload",
     "visibilitychange", "volumechange", "waiting", "mousewheel",
 }
-# hyperscript: ``on <name>[(args)]`` opens a feature at the start of a script, after ``end`` or on a new line.
+# hyperscript: ``on <name>[(args)]`` opens a feature at the start of a script, after ``end``, on a new line, or
+# after ``behavior <Name>[(params)]``, whose features may follow on the same line.
 # ``send <name>[(args)]`` / ``trigger <name>``, with or without ``to <target>``: events the script announces itself.
 _HS_SEND = re.compile(r"\b(?:send|trigger)\s+([\w:.-]+)")
-_HS_ON = re.compile(r"(?:^|\bend\b|\n)\s*on\s+(?:every\s+)?([\w:.-]+)(?:\(([^)]*)\))?")
+_HS_ON = re.compile(
+    r"(?:^|\bend\b|\n|\bbehavior\s+[\w.]+(?:\([^)]*\))?)\s*on\s+(?:every\s+)?([\w:.-]+)(?:\(([^)]*)\))?"
+)
 
 VERBS = {"render", "page", "fragment", "invalid", "redirect", "removed", "text", "navigate"}
 PAGE_VERBS = {"page"}
@@ -217,17 +220,29 @@ def scan_templates(
             control = _control_for(name, node, boosting, resolve)
             if control:
                 controls.append(control)
+            for text, _ in _hyperscript(node):
+                script_names.update(n for n in _HS_SEND.findall(text) if ":" not in n)
             for attr, value in node.attrs.items():
                 if attr == "hx-on" or attr.startswith("hx-on:"):
                     script_names.update(_NAME.findall(value or ""))
-                if attr in HYPERSCRIPT_ATTRS:
-                    script_names.update(n for n in _HS_SEND.findall(value or "") if ":" not in n)
                 if value:
                     controls += _script_controls(name, node, value, None, resolve)
             if node.tag == "script" and node.text and not node.attrs.get("src"):
                 controls += _script_controls(name, node, node.text, node.text_line, resolve)
             listeners += _listeners_for(name, node)
     return controls, listeners, script_names, boosting
+
+
+def _hyperscript(node: Node) -> list[tuple[str, int | None]]:
+    """
+    The hyperscript a node carries, with the line it starts on: its ``_``, ``script`` and ``data-script``
+    attributes (None: the node's own line), and the body of a ``<script type="text/hyperscript">``,
+    where behaviors are defined.
+    """
+    found = [(node.attrs.get(attr) or "", None) for attr in HYPERSCRIPT_ATTRS]
+    if node.tag == "script" and node.attrs.get("type") == HYPERSCRIPT_TYPE and node.text:
+        found.append((node.text, node.text_line))
+    return found
 
 
 def action_method(node: Node) -> str:
@@ -414,8 +429,8 @@ def resolve_path(url: str) -> str | None:
 def _listeners_for(file: str, node: Node) -> list[Listener]:
     out = []
 
-    def add(name: str) -> None:
-        out.append(Listener(file, node.line, node.describe(), name, browser=name in DOM_EVENTS))
+    def add(name: str, line: int | None = None) -> None:
+        out.append(Listener(file, node.line if line is None else line, node.describe(), name, browser=name in DOM_EVENTS))
 
     trigger = node.own("hx-trigger")
     if trigger and JINJA not in trigger:
@@ -438,12 +453,13 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
             if not name.startswith("htmx:"):
                 add(name)
     seen = set()
-    for attr in HYPERSCRIPT_ATTRS:
-        for match in _HS_ON.finditer(node.attrs.get(attr) or ""):
+    for text, first_line in _hyperscript(node):
+        for match in _HS_ON.finditer(text):
             name = match.group(1)
-            if ":" not in name and name not in seen:
-                seen.add(name)
-                add(name)
+            line = node.line if first_line is None else first_line + text.count("\n", 0, match.start(1))
+            if ":" not in name and (name, line) not in seen:
+                seen.add((name, line))
+                add(name, line)
     return out
 
 
@@ -766,9 +782,12 @@ def unpaired_events(
     """
     The events that do not pair, as ``(unannounced, unheard)``, each sorted by event name.
     ``unannounced`` maps an event something listens for to its listeners, when no handler
-    announces it and no script or ``hx-on`` handler in the templates names it; a browser event
-    (``Listener.browser``) is never asked to be announced. ``unheard`` maps an event a handler
-    announces to the handlers announcing it, when nothing in the templates listens for it.
+    announces it and no script names it; a browser event (``Listener.browser``) is never asked
+    to be announced. ``unheard`` maps an event a handler announces to the handlers announcing
+    it, when nothing in the templates listens for it and no script names it. A script names an
+    event with a quoted name in a ``<script>`` or ``hx-on`` (``addEventListener('x', ...)``,
+    ``dispatchEvent(new Event('x'))``), or with a hyperscript ``send x`` / ``trigger x``; which
+    side of the event the script is on cannot be read, so it counts for both.
     ``check`` warns on both; a framework adapter can report them its own way.
     """
     announced = {e for h in handlers.values() for e in h.announces}
@@ -777,7 +796,10 @@ def unpaired_events(
     unannounced = {
         event: [li for li in listeners if li.event == event] for event in sorted(custom - announced - script_names)
     }
-    unheard = {event: [h for h in handlers.values() if event in h.announces] for event in sorted(announced - listened)}
+    unheard = {
+        event: [h for h in handlers.values() if event in h.announces]
+        for event in sorted(announced - listened - script_names)
+    }
     return unannounced, unheard
 
 

@@ -189,7 +189,10 @@ DELETE control without `hx-include="closest form"` whose handler reads request
 values; a `fetch()` to a handler that calls `hx.render` or `hx.invalid`, which
 answers fetch with the page; and an event announced or listened for on only one
 side; a listener is an `hx-trigger`, an `hx-on`, or a hyperscript `on <name>` in `_`, `script` or
-`data-script` (browser events and `htmx:*` names are not custom events). `hx.navigate` says nothing about shape: a handler that calls it and
+`data-script` or in a `<script type="text/hyperscript">`, behaviors included (browser events and `htmx:*`
+names are not custom events). An event a script names (a quoted name in a `<script>` or `hx-on`, such as
+`addEventListener('x', ...)`, or a hyperscript `send x` / `trigger x`) counts for both sides, since the
+scan cannot tell whether the script listens or sends. `hx.navigate` says nothing about shape: a handler that calls it and
 `hx.page` is still checked as page-only, and its return does not hide a JSON
 return. `--by-template` inverts it: every template and block a handler names, the
 handlers that render it, and the controls that reach them, for when you are

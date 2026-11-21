@@ -2,6 +2,8 @@
 
 import io
 
+import pytest
+
 from hxmap import build_map, print_map
 
 
@@ -489,6 +491,61 @@ def test_unpaired_events_is_the_pairing_check_warns_from(make_app):
         "refresh": [("page.html", "p")]  # not ping, which a script names, nor click, a browser event
     }
     assert {event: [h.label for h in by] for event, by in unheard.items()} == {"other": ["_announces_other()"]}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        """<script type="text/hyperscript">on saved from body log 1 end</script>""",
+        # a behavior's features may follow its name on the same line
+        """<script type="text/hyperscript">behavior Saver on saved from body log 1 end end</script><div _="install Saver"></div>""",
+        """<script type="text/hyperscript">behavior Saver(n) on saved from body log n end end</script>""",
+    ],
+    ids=["script-block", "behavior", "behavior-with-params"],
+)
+def test_map_reads_hyperscript_in_a_text_hyperscript_script(make_app, body):
+    m = _listener_map(make_app, body, handler=_announces_saved)
+    assert [li.event for li in m.listeners] == ["saved"] and m.warnings == []
+
+
+def test_a_hyperscript_script_listener_is_reported_at_its_own_line(make_app):
+    body = """<script type="text/hyperscript">
+behavior Archiver
+  on archived from body
+    log 1
+  end
+end
+</script>"""
+    m = _listener_map(make_app, body)
+    assert [(li.event, li.line) for li in m.listeners] == [("archived", 3)]
+    assert m.warnings == ["event 'archived' is listened for (page.html:3) but no handler announces it with .trigger() and no script names it."]
+
+
+def test_a_hyperscript_script_send_names_the_event_it_announces(make_app):
+    body = (
+        """<script type="text/hyperscript">on keyup[key is 'Escape'] from window send closeAll to body end</script>"""
+        """<div _="on closeAll from body remove me"></div>"""
+    )
+    m = _listener_map(make_app, body)
+    assert "closeAll" in m.script_names and m.warnings == []
+
+
+def test_a_javascript_script_is_not_read_as_hyperscript(make_app):
+    body = """<script>
+/*
+ on saved from body: what the hyperscript version said
+*/
+</script>"""
+    m = _listener_map(make_app, body, handler=_announces_saved)
+    assert m.listeners == []
+    assert m.warnings == ["event 'saved' is announced by _announces_saved() but nothing in the templates listens for it."]
+
+
+def test_an_event_a_script_names_is_not_reported_as_unheard(make_app):
+    # the script may listen for it (addEventListener) or send it: the scan cannot tell which, so neither is warned
+    body = """<script>document.body.addEventListener('saved', () => location.reload())</script>"""
+    m = _listener_map(make_app, body, handler=_announces_saved)
+    assert m.listeners == [] and m.warnings == []
 
 
 def test_map_ignores_browser_events_and_htmx_events_in_hyperscript(make_app):

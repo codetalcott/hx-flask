@@ -102,7 +102,7 @@ app. Every row has a test.
 | A partial control pointing at a page-only handler, or a boosted link at a fragment-only one, including an `htmx.ajax()` call in a script | `flask hx map`, errors | |
 | A handler reads the `HX-Trigger` request header, or `request.form` on DELETE: both always empty in htmx 4 | `flask hx map`, errors, with or without hx verbs | |
 | A control reaching a handler that returns JSON, which htmx swaps as HTML | `flask hx map`: an error if every return is JSON, a warning if one is | |
-| A control reaching a handler that calls no hx verb; `.retarget()` or `.reswap()`; reading `HX-Target` or `HX-Source`; `fetch()` to a handler that calls `hx.render`; an event announced by `.trigger()` or listened for (`hx-trigger`, `hx-on`, hyperscript `on <name>`) on only one side | `flask hx map`, warnings | |
+| A control reaching a handler that calls no hx verb; `.retarget()` or `.reswap()`; reading `HX-Target` or `HX-Source`; `fetch()` to a handler that calls `hx.render`; an event announced by `.trigger()` or listened for (`hx-trigger`, `hx-on`, hyperscript `on <name>` in an attribute or a `<script type="text/hyperscript">`, behaviors included) on only one side; an event a script names (a quoted name in a `<script>` or `hx-on`, a hyperscript `send` or `trigger`) counts for both sides | `flask hx map`, warnings | |
 
 ## What was rejected
 

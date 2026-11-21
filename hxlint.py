@@ -47,6 +47,7 @@ _JS_EVENT = re.compile(r"""(["'`])(?P<event>htmx:[A-Za-z][\w:-]*)\1""")
 _HS_EVENT = re.compile(r"(?<![\w:.-])(?P<event>htmx:[A-Za-z][\w:-]*)")
 _DETAIL_XHR = re.compile(r"""\bdetail\s*(?:\?\.|\.)\s*xhr\b|\bdetail\s*\[\s*["']xhr["']\s*\]""")
 HYPERSCRIPT_ATTRS = ("_", "script", "data-script")
+HYPERSCRIPT_TYPE = "text/hyperscript"  # a <script> of this type holds hyperscript, behaviors included
 # Where the documented rename does not do what the old listener did (observed in a browser).
 _EVENT_NOTES = {
     "htmx:load": " It fires once per element that has htmx attributes, not on the new content; to run code on "
@@ -286,7 +287,7 @@ class _Linter:
     def run(self) -> list[Finding]:
         for node in self.nodes:
             if node.tag == "script" and node.text and not node.attrs.get("src"):
-                self.script(node, node.text, node.text_line, hyperscript=node.attrs.get("type") == "text/hyperscript")
+                self.script(node, node.text, node.text_line, hyperscript=node.attrs.get("type") == HYPERSCRIPT_TYPE)
             for name, value in list(node.attrs.items()):
                 self.script_attribute(node, name, value)
                 base = name[5:] if name.startswith("data-hx-") else name

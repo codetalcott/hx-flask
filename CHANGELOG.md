@@ -13,9 +13,13 @@
   browser event's name (`close`, `message`) still pairs with a `.trigger()` of
   that name; only the "listened for but never announced" warning skips it. A hyperscript
   `send x` / `trigger x` counts as the script announcing `x`, so its own
-  listener is not reported as never announced. A hyperscript
-  `send x` / `trigger x` counts as the script announcing `x`, so its own
-  listener is not reported as never announced.
+  listener is not reported as never announced. The body of a
+  `<script type="text/hyperscript">` is read the same way, behaviors included
+  (`behavior Saver on saved ... end end`), each listener at its own line. An
+  event a script names, a quoted name in a `<script>` or `hx-on`
+  (`addEventListener('saved', ...)`) or a hyperscript `send`, is not reported
+  as never listened for either: the scan cannot tell which side the script is
+  on. `mapcore.unpaired_events()` returns the pairing `check()` warns from.
 - Lint rule `htmx2-event-name` reads JavaScript as well as `hx-on` and
   `hx-trigger`: quoted event names in `<script>`, `onclick`, Alpine's `@click`
   and `x-on:htmx:...`, hyperscript's `_`, and `.js` files, which `flask hx lint`
