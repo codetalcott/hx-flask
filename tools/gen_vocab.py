@@ -6,7 +6,10 @@ draft of this project flagged ``revealed`` and ``hx-on::after:swap``, both valid
 htmx 4. So every list below is read from htmx's own files, and this script
 fails loudly when a file it relies on has moved.
 
-    HTMX_SRC=~/path/to/htmx-4.0.0 python tools/gen_vocab.py
+    git clone --depth 1 --branch v4.0.2 https://github.com/bigskysoftware/htmx /tmp/htmx-4.0.2
+    HTMX_SRC=/tmp/htmx-4.0.2 python tools/gen_vocab.py
+
+HTMX_SRC is a clone of an htmx 4 release tag: the paths below are that repository's layout.
 """
 
 from __future__ import annotations
@@ -16,7 +19,13 @@ import pathlib
 import re
 import sys
 
-SRC = pathlib.Path(os.environ.get("HTMX_SRC", "~/projects/convergence/examples/material/htmx-4.0.0")).expanduser()
+SRC = pathlib.Path(os.environ.get("HTMX_SRC", "")).expanduser()
+# Where each input lives in htmx's repository.
+ATTRIBUTE_DOCS = "www/src/content/reference/01-attributes"
+EXTENSION_DOCS = "www/src/content/extensions"
+WHATS_NEW = "www/src/content/docs/whats-new-in-htmx-4.md"
+UPGRADE_SKILL = "src/skills/htmx-upgrade-from-htmx2.md"
+GUIDANCE_SKILL = "src/skills/htmx-guidance.md"
 OUT = pathlib.Path(__file__).resolve().parent.parent / "hx_vocab.py"
 
 ATTR_NAME = re.compile(r"`(hx-[a-z-]+(?::[a-z-]+)*)`")
@@ -25,13 +34,13 @@ TABLE_ROW = re.compile(r"^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|")
 
 def must(path: pathlib.Path) -> str:
     if not path.exists():
-        sys.exit(f"gen_vocab: {path} is missing; point HTMX_SRC at an htmx 4 checkout")
+        sys.exit(f"gen_vocab: {path} is missing; point HTMX_SRC at a clone of an htmx 4 release tag")
     return path.read_text()
 
 
 def core_attributes() -> list[str]:
     names = []
-    for f in sorted((SRC / "docs/reference/01-attributes").glob("*.md")):
+    for f in sorted((SRC / ATTRIBUTE_DOCS).glob("*.md")):
         if f.name == "index.md":
             continue
         names.append(re.sub(r"^\d+-", "", f.stem))
@@ -40,7 +49,7 @@ def core_attributes() -> list[str]:
 
 def extension_attributes(core: set[str]) -> dict[str, list[str]]:
     result = {}
-    for f in sorted((SRC / "docs/extensions").glob("*.md")):
+    for f in sorted((SRC / EXTENSION_DOCS).glob("*.md")):
         ext = re.sub(r"^\d+-", "", f.stem)
         found = set(ATTR_NAME.findall(f.read_text()))
         # the extension's own attributes: not core, and not another extension's
@@ -75,7 +84,7 @@ def removed_attributes() -> dict[str, str]:
     core = set(core_attributes())
     ext_names = {a for attrs in extension_attributes(core).values() for a in attrs}
     removed = {}
-    for doc in ("docs/skills/htmx-upgrade-from-htmx2.md", "docs/skills/htmx-guidance.md"):
+    for doc in (UPGRADE_SKILL, GUIDANCE_SKILL):
         for line in must(SRC / doc).splitlines():
             m = TABLE_ROW.match(line)
             if not m:
@@ -95,7 +104,7 @@ def removed_attributes() -> dict[str, str]:
 def swap_styles() -> tuple[list[str], dict[str, str], dict[str, str]]:
     """Headings under '## Swap Methods' in the hx-swap reference, checked against src/htmx.js."""
     js = must(SRC / "src/htmx.js")
-    doc = must(SRC / "docs/reference/01-attributes/08-hx-swap.md")
+    doc = must(SRC / ATTRIBUTE_DOCS / "08-hx-swap.md")
     section = doc.split("## Swap Methods", 1)[1].split("\n## ", 1)[0]
     aliases = dict(re.findall(r"style === '(\w+)' \? '(\w+)'", js))
     ext_styles = {"upsert": "hx-upsert", "download": "hx-download"}
@@ -108,14 +117,14 @@ def swap_styles() -> tuple[list[str], dict[str, str], dict[str, str]]:
                 sys.exit(f"gen_vocab: swap style {name} is documented but absent from the source")
             styles.append(name)
     for style, ext in ext_styles.items():
-        ext_doc = SRC / "docs/extensions"
+        ext_doc = SRC / EXTENSION_DOCS
         if not any(style in f.read_text() for f in ext_doc.glob(f"*{ext}.md")):
             sys.exit(f"gen_vocab: swap style {style} not documented by {ext}")
     return styles, aliases, ext_styles
 
 
 def swap_modifiers() -> list[str]:
-    doc = must(SRC / "docs/reference/01-attributes/08-hx-swap.md")
+    doc = must(SRC / ATTRIBUTE_DOCS / "08-hx-swap.md")
     js = must(SRC / "src/htmx.js")
     section = doc.split("## Modifiers", 1)[1].split("\n## ", 1)[0]
     documented = set(re.findall(r"^### `([a-zA-Z]+)`", section, re.M))
@@ -128,7 +137,7 @@ def swap_modifiers() -> list[str]:
 
 
 def trigger_modifiers() -> list[str]:
-    guidance = must(SRC / "docs/skills/htmx-guidance.md")
+    guidance = must(SRC / GUIDANCE_SKILL)
     js = must(SRC / "src/htmx.js")
     names = []
     in_table = False
@@ -154,8 +163,8 @@ def htmx2_event_names() -> dict[str, str]:
     table in the upgrade skill, then every name the htmx-2-compat extension re-fires,
     so nothing is missed. Every row is an htmx 2 name, lowercase ones included
     (htmx:load, htmx:xhr:progress)."""
-    text = must(SRC / "docs/whats-new-in-htmx-4.md")
-    skill = must(SRC / "docs/skills/htmx-upgrade-from-htmx2.md")
+    text = must(SRC / WHATS_NEW)
+    skill = must(SRC / UPGRADE_SKILL)
     compat = must(SRC / "src/ext/htmx-2-compat.js")
     row = re.compile(r"^\|\s*`(htmx:[A-Za-z:]+)`\s*\|\s*(?:\[`([^`]+)`\]\([^)]*\)|`([^`]+)`|([^|]*?))\s*\|")
 
@@ -179,6 +188,9 @@ def htmx2_event_names() -> dict[str, str]:
 
 
 def main() -> None:
+    if not os.environ.get("HTMX_SRC"):
+        sys.exit("gen_vocab: set HTMX_SRC to a clone of an htmx 4 release tag:\n"
+                 "  git clone --depth 1 --branch v4.0.2 https://github.com/bigskysoftware/htmx /tmp/htmx-4.0.2")
     core = core_attributes()
     ext = extension_attributes(set(core))
     ext_names = extension_names()
@@ -187,22 +199,22 @@ def main() -> None:
     smods = swap_modifiers()
     tmods = trigger_modifiers()
     events = htmx2_event_names()
-    version = re.search(r'"version":\s*"([^"]+)"', must(SRC / "package.json")).group(1) if (SRC / "package.json").exists() else "4.0.0"
+    version = re.search(r'"version":\s*"([^"]+)"', must(SRC / "package.json")).group(1)
 
     def lit(v):
         return repr(v)
 
     body = f'''"""
-htmx {version} vocabulary. GENERATED by tools/gen_vocab.py from the htmx source tree;
+htmx {version} vocabulary. GENERATED by tools/gen_vocab.py from htmx's repository at v{version};
 do not edit by hand. Regenerate against a new htmx release.
 """
 
 VERSION = {lit(version)}
 
-# docs/reference/01-attributes/*.md
+# www/src/content/reference/01-attributes/*.md
 CORE_ATTRIBUTES = {lit(core)}
 
-# docs/extensions/*.md, the attributes each extension adds
+# www/src/content/extensions/*.md, the attributes each extension adds
 EXTENSION_ATTRIBUTES = {lit(ext)}
 
 # src/ext/*.js: every name an extension answers to (file name, or the name it registers) -> file name
@@ -219,22 +231,22 @@ INHERITABLE = ("hx-target", "hx-swap", "hx-confirm", "hx-boost", "hx-sync", "hx-
 
 REQUEST_ATTRIBUTES = ("hx-get", "hx-post", "hx-put", "hx-patch", "hx-delete", "hx-query", "hx-action")
 
-# docs/skills/htmx-upgrade-from-htmx2.md: htmx 2 names and what replaced them
+# src/skills/htmx-upgrade-from-htmx2.md: htmx 2 names and what replaced them
 REMOVED_ATTRIBUTES = {lit(removed)}
 
-# docs/skills/htmx-guidance.md swap table, plus the aliases in src/htmx.js
+# src/skills/htmx-guidance.md swap table, plus the aliases in src/htmx.js
 SWAP_STYLES = {lit(styles)}
 SWAP_ALIASES = {lit(aliases)}
 EXTENSION_SWAP_STYLES = {lit(ext_styles)}
 
-# docs/reference/01-attributes/08-hx-swap.md, confirmed against src/htmx.js
+# www/src/content/reference/01-attributes/08-hx-swap.md, confirmed against src/htmx.js
 SWAP_MODIFIERS = {lit(smods)}
 
-# docs/skills/htmx-guidance.md trigger table, confirmed against src/htmx.js
+# src/skills/htmx-guidance.md trigger table, confirmed against src/htmx.js
 TRIGGER_MODIFIERS = {lit(tmods)}
 SPECIAL_TRIGGERS = ("load", "every", "intersect", "revealed")
 
-# docs/whats-new-in-htmx-4.md and docs/skills/htmx-upgrade-from-htmx2.md: htmx 2 event names
+# www/src/content/docs/whats-new-in-htmx-4.md and src/skills/htmx-upgrade-from-htmx2.md: htmx 2 event names
 # and their htmx 4 form, "(removed)" for those htmx 4 no longer fires
 HTMX2_EVENT_NAMES = {lit(events)}
 '''

@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- Four of `hx_vocab.HTMX2_EVENT_NAMES`' renames were htmx 4.0.0's, which htmx
+  4.0.1 corrected in its upgrade guide, its `upgrade-check` and htmx-2-compat:
+  - `htmx:afterOnLoad` is `htmx:after:request` (was `htmx:after:init`);
+  - `htmx:beforeOnLoad` is `htmx:before:response` (was `htmx:before:init`);
+  - `htmx:load` is `htmx:after:process` (was `htmx:after:init`);
+  - `htmx:beforeProcessNode` is `htmx:before:init` (was `htmx:before:process`).
+
+  The lint pointed a listener for a finished request at `htmx:after:init`,
+  which fires when htmx initializes an element. `hx_vocab.py` is regenerated
+  from the `v4.0.2` tag; nothing else in it changed.
+- The `htmx:load` lint message no longer adds "call htmx.onLoad(fn)". Its
+  rename, `htmx:after:process`, reaches the rows there at load and a row
+  swapped in later, as `htmx:load` did (observed in Chromium on htmx 4.0.0).
+- `hx-compat` is no longer a known extension name: htmx 4.0.1 removed the
+  stale file it came from.
+
+### Changed
+
+- `tools/gen_vocab.py` reads a clone of an htmx release tag, in that
+  repository's layout, and `HTMX_SRC` is required. Run on the `v4.0.0` tag, it
+  reproduces 0.1.0's `hx_vocab.py` apart from `hx-compat`.
+
 ## 0.1.0 (2026-11-21)
 
 ### Added

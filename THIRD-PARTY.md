@@ -12,6 +12,6 @@ line.
   Akşimşek), whose sample application is published under the BSD 2-Clause
   license.
 
-`hx_vocab.py` is generated from the htmx 4.0.0 source tree by
+`hx_vocab.py` is generated from htmx's repository at the `v4.0.2` tag by
 `tools/gen_vocab.py`; the vocabulary is htmx's, the generator is this
 project's. dj-hx vendors `hxlint.py`, `hx_vocab.py` and `mapcore.py` from here.
