@@ -31,7 +31,8 @@
   request full too, and its reply is pruned to what the selector finds. The
   map now reports such a control as `full` (`hx-select:inherited from
   div#card`), which can show a handler that only sends fragments to it. An own
-  `hx-select=""`, which htmx 4.0.2 reads as no select, is `partial`.
+  `hx-select=""`, which htmx 4.0.2 reads as no select, is `partial`, and the
+  lint's `select-not-body` info no longer fires on it.
 
 ### Changed
 

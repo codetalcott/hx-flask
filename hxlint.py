@@ -306,7 +306,7 @@ class _Linter:
                     self.id_exists(node, stem, value)
             self.inheritance(node)
             self.delete_control(node)
-            if node.own("hx-select") is not None and node.resolved("hx-target") != "body":
+            if node.own("hx-select") and node.resolved("hx-target") != "body":  # an empty one selects nothing
                 self.add("info", "select-not-body", node, "hx-select prunes a page on the client; the server can send the fragment instead (HX-Request-Type is 'full' here).")
         for id_, nodes in self.ids.items():
             # An id built in the template ({{ field.id_for_label }}) is unknown until it renders: two such ids
