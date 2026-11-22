@@ -234,6 +234,15 @@ def test_missing_target_only_on_documents():
     assert lint_html('<button hx-get="/x" hx-target="#gone">x</button>') == []  # a fragment cannot know
 
 
+def test_ids_built_in_the_template_are_not_compared():
+    # A production template gave two fields' {{ ...id_for_label }}: both read __JINJA__ before this.
+    assert lint_source('<input id="{{ form.name.id_for_label }}"><input id="{{ form.emails.id_for_label }}">') == []
+    assert lint_source('{% for r in rows %}<tr id="row-{{ r.pk }}"></tr>{% endfor %}<tr id="row-{{ x.pk }}"></tr>') == []
+    assert rules(lint_source('<img id="spinner"><img id="spinner">')) == ["duplicate-id"]
+    # The lint does not follow {% if %}: an id in two exclusive branches still counts twice (llms.txt says so).
+    assert rules(lint_source('{% if a %}<h2 id="t">A</h2>{% else %}<h2 id="t">B</h2>{% endif %}')) == ["duplicate-id"]
+
+
 def test_duplicate_ids_and_select_info():
     f = lint_html('<html><body><img id="spinner"><img id="spinner"><button hx-get="/x" hx-select="tbody > tr" hx-target="closest tr">x</button></body></html>')
     assert rules(f, "error") == ["duplicate-id"] and rules(f, "info") == ["select-not-body"]

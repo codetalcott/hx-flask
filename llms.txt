@@ -167,6 +167,9 @@ Alpine's `@click`), hyperscript's `_`, Alpine's `x-on:htmx:...`
 (`htmx2-event-name`). It also errors on `event.detail.xhr` in any of those
 (`htmx2-detail-xhr`). A directory is searched for `*.html` and `*.js`, skipping
 htmx's own files (`htmx-4.0.0.js`, `hx-sse.js`, `htmx-2-compat.js`).
+Over template source, `duplicate-id` compares literal ids only: an id built with
+`{{ }}` is unknown until it renders. The lint does not follow `{% if %}`, so an
+id written in two exclusive branches is reported though only one renders.
 
 The map's controls are `hx-*` attributes, boosted links and forms, and
 `htmx.ajax(verb, url, options)` calls with a literal verb, in a `<script>` or an

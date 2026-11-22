@@ -19,6 +19,12 @@
   swapped in later, as `htmx:load` did (observed in Chromium on htmx 4.0.0).
 - `hx-compat` is no longer a known extension name: htmx 4.0.1 removed the
   stale file it came from.
+- `duplicate-id` no longer compares ids built in the template. Over template
+  source, every `{{ ... }}` reads as one placeholder, so
+  `id="{{ form.name.id_for_label }}"` and `id="{{ form.emails.id_for_label }}"`
+  were reported as one id twice, against `lint_source`'s own promise that values
+  with Jinja are not parsed. Literal ids are compared as before. An id in two
+  exclusive `{% if %}` branches is still reported (llms.txt states it).
 
 ### Changed
 
