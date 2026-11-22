@@ -309,7 +309,9 @@ class _Linter:
             if node.own("hx-select") is not None and node.resolved("hx-target") != "body":
                 self.add("info", "select-not-body", node, "hx-select prunes a page on the client; the server can send the fragment instead (HX-Request-Type is 'full' here).")
         for id_, nodes in self.ids.items():
-            if len(nodes) > 1:
+            # An id built in the template ({{ field.id_for_label }}) is unknown until it renders: two such ids
+            # are not the same id, and the source says nothing about which is which.
+            if len(nodes) > 1 and JINJA not in id_:
                 tags = ", ".join(n.tag for n in nodes)
                 self.add("error", "duplicate-id", nodes[1], f'id="{id_}" appears {len(nodes)} times ({tags}); selectors and hx-indicator find only the first.')
         return self.findings
