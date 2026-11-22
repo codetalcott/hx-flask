@@ -25,6 +25,13 @@
   were reported as one id twice, against `lint_source`'s own promise that values
   with Jinja are not parsed. Literal ids are compared as before. An id in two
   exclusive `{% if %}` branches is still reported (llms.txt states it).
+- `hx map` read only a control's own `hx-select` when it decided whether htmx
+  4 sends `HX-Request-Type: full`. htmx 4.0.2 reads `hx-select` as it reads
+  `hx-target`, so an ancestor's `hx-select:inherited` makes the control's
+  request full too, and its reply is pruned to what the selector finds. The
+  map now reports such a control as `full` (`hx-select:inherited from
+  div#card`), which can show a handler that only sends fragments to it. An own
+  `hx-select=""`, which htmx 4.0.2 reads as no select, is `partial`.
 
 ### Changed
 
