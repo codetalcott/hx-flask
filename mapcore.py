@@ -285,9 +285,11 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
         return None
 
     target = (node.resolved("hx-target") or "").strip()
-    select = node.own("hx-select") is not None
-    if select:
-        scope, why = "full", "hx-select"
+    # htmx 4.0.2 resolves hx-select as it does hx-target, and sends HX-Request-Type: full when one reaches the
+    # control; an own hx-select="" is a value, empty, so it selects nothing and stops an ancestor's.
+    selecting = node.resolving("hx-select")
+    if selecting is not None and node.resolved("hx-select"):
+        scope, why = "full", "hx-select" if selecting is node else f"hx-select:inherited from {selecting.describe()}"
     elif target == "body" or (boosted and not target):
         scope, why = "full", "boosted" if boosted and not target else "hx-target=body"
     elif JINJA in target:

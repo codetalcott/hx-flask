@@ -248,6 +248,12 @@ def test_duplicate_ids_and_select_info():
     assert rules(f, "error") == ["duplicate-id"] and rules(f, "info") == ["select-not-body"]
 
 
+def test_an_empty_hx_select_is_not_a_select():
+    # htmx 4.0.2 reads an own hx-select="" as an empty value: no select, and an ancestor's hx-select:inherited stops
+    f = lint_html('<html><body><div hx-select:inherited="#card"><button hx-get="/x" hx-select="" hx-target="#t">x</button></div><div id="t"></div><div id="card"></div></body></html>')
+    assert [(x.rule, x.element) for x in f if x.severity == "info"] == [("select-not-body", "div")]
+
+
 def test_oob_in_a_template_is_noted_not_failed():
     f = lint_html('<div id="count" hx-swap-oob="true">3</div><div hx-select-oob="#flash"></div>')
     assert rules(f) == ["oob-in-template"] and {x.severity for x in f} == {"info"} and len(f) == 2

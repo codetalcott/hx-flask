@@ -694,3 +694,36 @@ def test_an_hx_action_control_sends_the_method_htmx_4_resolves(make_app):
     assert [(c.line, c.method) for c in by(m.controls, endpoint="save")] == [
         (2, "GET"), (3, "DELETE"), (4, "PUT"), (5, "GET"), (6, "POST"), (7, "PATCH"),
     ]
+
+
+def test_an_inherited_hx_select_makes_the_request_full(make_app):
+    # htmx 4.0.2 reads hx-select as it reads hx-target: the control's own, else the nearest ancestor's
+    # hx-select:inherited. Its request code sends HX-Request-Type: full when the target is body or a select
+    # reached the control, and an own hx-select="" is a value (getAttribute(...) ?? ...), empty, so no select.
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <div id="card" hx-select:inherited="#card">
+            <button hx-post="{{ url_for('notify') }}" hx-target="#notify">inherited</button>
+            <button hx-post="{{ url_for('notify') }}" hx-target="#notify" hx-select="">own empty</button>
+            </div>
+            <div hx-select="#card"><button hx-post="{{ url_for('notify') }}" hx-target="#notify">plain ancestor</button></div>
+            <div id="notify"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.post("/notify")
+    def notify():
+        return hx.text("sent")
+
+    m = build_map(app)
+    assert [(c.line, c.scope, c.why) for c in by(m.controls, endpoint="notify")] == [
+        (3, "full", "hx-select:inherited from div#card"),
+        (4, "partial", "hx-target=#notify"),
+        (6, "partial", "hx-target=#notify"),
+    ]
+    assert m.errors == [
+        "page.html:3 <button> wants a page (hx-select:inherited from div#card) but notify() only calls hx.text; "
+        "a bare fragment would land in <body>.",
+    ]

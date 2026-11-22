@@ -211,7 +211,9 @@ editing a block and need to know who serves it.
 
 ## htmx 4 facts this depends on
 
-- `HX-Request-Type` is `full` when the target is the body or `hx-select` is set, else `partial`.
+- `HX-Request-Type` is `full` when the target is the body or an `hx-select` reaches the control (its own, or the
+  nearest ancestor's `hx-select:inherited`, as `hx-target` is read), else `partial`. An own `hx-select=""` is a
+  value, empty: it selects nothing and stops an ancestor's (htmx 4.0.2's request code).
 - `hx-push-url="true"` pushes the URL after redirects, so a plain 303 updates the location bar.
 - A `delete` swap runs regardless of response content, and honors `swap:1s`.
 - `HX-Trigger` fires on the source element, or `document` if the swap removed it; so `.trigger()` always sets a target.
