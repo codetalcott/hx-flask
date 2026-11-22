@@ -67,8 +67,8 @@ The layout loads htmx 4 and, because attributes reach descendants only with
 - Event names are colon-separated: `hx-on::after:request`,
   `hx-trigger="htmx:after:swap from:body"`, `addEventListener("htmx:config:request", ...)`.
   htmx 2's `after-request` and `afterRequest` forms listen for events htmx 4
-  never fires. For code that runs on new content, `htmx.onLoad(fn)`, not
-  `htmx:load`.
+  never fires. For code that runs on new content, listen for
+  `htmx:after:process` (or call `htmx.onLoad(fn)`), not `htmx:load`.
 - An event's detail has no `xhr`: htmx 4 uses `fetch()`. Read
   `event.detail.ctx` (`ctx.response.status`, `ctx.text`).
 - A control gets HTML. A handler an `hx-*` control or `htmx.ajax()` reaches never

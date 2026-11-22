@@ -46,7 +46,11 @@ def test_vocabulary_is_generated_from_htmx_and_knows_the_facts_that_bit_us():
     assert {"swap", "settle", "show", "showTarget", "transition"} <= set(V.SWAP_MODIFIERS)
     assert {"once", "changed", "delay", "throttle", "from", "consume"} <= set(V.TRIGGER_MODIFIERS)
     assert V.HTMX2_EVENT_NAMES["htmx:afterSwap"] == "htmx:after:swap"
-    assert V.HTMX2_EVENT_NAMES["htmx:load"] == "htmx:after:init" and V.HTMX2_EVENT_NAMES["htmx:xhr:progress"] == "(removed)"
+    assert V.HTMX2_EVENT_NAMES["htmx:load"] == "htmx:after:process" and V.HTMX2_EVENT_NAMES["htmx:xhr:progress"] == "(removed)"
+    # htmx 4.0.1 corrected these in its upgrade guide and htmx-2-compat; htmx 4.0.0's said init for all four.
+    assert V.HTMX2_EVENT_NAMES["htmx:afterOnLoad"] == "htmx:after:request"
+    assert V.HTMX2_EVENT_NAMES["htmx:beforeOnLoad"] == "htmx:before:response"
+    assert V.HTMX2_EVENT_NAMES["htmx:beforeProcessNode"] == "htmx:before:init"
     assert not any(v.startswith("(see") for v in V.HTMX2_EVENT_NAMES.values())
 
 
@@ -164,8 +168,9 @@ def test_events_htmx_4_removed_and_htmx_load():
     [removed] = lint_html('<script>el.addEventListener("htmx:xhr:progress", show)</script>')
     assert removed.message == "htmx:xhr:progress is an htmx 2 event that htmx 4 no longer fires."
     [load] = lint_script('addEventListener("htmx:load", e => overflowMenu(e.target));', file="rsjs-menu.js")
-    assert str(load).startswith("[error] htmx2-event-name rsjs-menu.js:1: htmx:load is the htmx 2 event name; htmx 4 calls it htmx:after:init.")
-    assert "htmx.onLoad(fn)" in load.message
+    assert str(load) == "[error] htmx2-event-name rsjs-menu.js:1: htmx:load is the htmx 2 event name; htmx 4 calls it htmx:after:process."
+    [onload] = lint_html('<button _="on click toggle .disabled until htmx:afterOnLoad">Save</button>')
+    assert onload.message == "htmx:afterOnLoad is the htmx 2 event name; htmx 4 calls it htmx:after:request."
     assert rules(lint_html('<div hx-on::load="x()"></div>')) == ["htmx2-event-name"]
     assert lint_html('<a hx-on:load="this.click()">x</a>') == []  # the DOM's load, not htmx's
 

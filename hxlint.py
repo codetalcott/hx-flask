@@ -48,11 +48,6 @@ _HS_EVENT = re.compile(r"(?<![\w:.-])(?P<event>htmx:[A-Za-z][\w:-]*)")
 _DETAIL_XHR = re.compile(r"""\bdetail\s*(?:\?\.|\.)\s*xhr\b|\bdetail\s*\[\s*["']xhr["']\s*\]""")
 HYPERSCRIPT_ATTRS = ("_", "script", "data-script")
 HYPERSCRIPT_TYPE = "text/hyperscript"  # a <script> of this type holds hyperscript, behaviors included
-# Where the documented rename does not do what the old listener did (observed in a browser).
-_EVENT_NOTES = {
-    "htmx:load": " It fires once per element that has htmx attributes, not on the new content; to run code on "
-    "each piece of new content (the body at load, the swapped-in elements after), call htmx.onLoad(fn).",
-}
 
 
 # ---------------------------------------------------------------------- HCON
@@ -414,7 +409,7 @@ class _Linter:
                 message = f"{old} is an htmx 2 event that htmx 4 no longer fires."
             else:
                 message = f"{old} is the htmx 2 event name; htmx 4 calls it {new}."
-            self.add("error", "htmx2-event-name", node, message + _EVENT_NOTES.get(old, ""), line)
+            self.add("error", "htmx2-event-name", node, message, line)
         elif re.match(r"^htmx:[a-z]+[A-Z]", event):
             self.add("error", "htmx2-event-name", node, f"{event} looks like an htmx 2 camelCase event; htmx 4 names are colon-separated (htmx:after:swap).", line)
 

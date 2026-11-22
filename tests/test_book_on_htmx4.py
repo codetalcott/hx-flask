@@ -331,16 +331,19 @@ def test_the_toolbar_delete_sends_the_checkboxes_as_query_parameters(browser, se
 def test_the_overflow_menu_waits_for_an_event_htmx_4_does_not_fire():
     [finding] = lint_script(RSJS_MENU, file="static/js/rsjs-menu.js")
     assert (finding.rule, finding.line) == ("htmx2-event-name", 28)
-    assert "htmx:after:init" in finding.message and "htmx.onLoad(fn)" in finding.message
+    assert finding.message.endswith("htmx 4 calls it htmx:after:process.")
 
 
 @pytest.mark.browser
-def test_the_overflow_menu_opens_only_with_htmx_onload(browser, serve):
-    """Observed: htmx:load never fires; htmx:after:init fires on the elements htmx initializes, which hold no menu."""
+def test_the_overflow_menu_opens_with_after_process_or_htmx_onload(browser, serve):
+    """Observed: htmx:load never fires; htmx:after:init fires on the elements htmx initializes, which hold
+    no menu. htmx:after:process, the rename htmx 4.0.1's upgrade guide gives, and htmx.onLoad both reach
+    the rows at load and a row swapped in later, as htmx 2's htmx:load did."""
     app = Flask("book_ch09", static_folder=str(ROOT / "static"))
     variants = {
         "book": RSJS_MENU,
         "after-init": RSJS_MENU.replace('"htmx:load"', '"htmx:after:init"'),
+        "after-process": RSJS_MENU.replace('"htmx:load"', '"htmx:after:process"'),
         "onload": RSJS_MENU.replace('addEventListener("htmx:load", e => overflowMenu(e.target));', "htmx.onLoad(overflowMenu);"),
     }
 
@@ -348,7 +351,12 @@ def test_the_overflow_menu_opens_only_with_htmx_onload(browser, serve):
     def contacts(variant):
         return f"""<html><head><script src="/static/js/htmx-4.0.0.js"></script><script type="module">{variants[variant]}</script>
             <script>htmx.onLoad(() => document.body.dataset.processed = "yes")</script></head>
-            <body><table><tbody>{ROW_CH09.format(id=1)}</tbody></table></body></html>"""
+            <body><button hx-get="/row/2" hx-target="tbody" hx-swap="beforeend">More</button>
+            <table><tbody>{ROW_CH09.format(id=1)}</tbody></table></body></html>"""
+
+    @app.get("/row/<int:contact>")
+    def row(contact):
+        return ROW_CH09.format(id=contact)
 
     base = serve(app)
     page = browser.new_page()
@@ -356,9 +364,13 @@ def test_the_overflow_menu_opens_only_with_htmx_onload(browser, serve):
     for variant in variants:
         page.goto(f"{base}/{variant}")
         page.wait_for_selector("body[data-processed]")
-        page.get_by_text("Options").click()
-        opened[variant] = page.locator("#contact-menu-1").is_visible()
-    assert opened == {"book": False, "after-init": False, "onload": True}
+        page.get_by_text("More").click()
+        page.wait_for_selector("#contact-menu-2", state="attached")
+        opened[variant] = []
+        for contact in (1, 2):
+            page.locator(f'[aria-controls="contact-menu-{contact}"]').click()
+            opened[variant].append(page.locator(f"#contact-menu-{contact}").is_visible())
+    assert opened == {"book": [False, False], "after-init": [False, False], "after-process": [True, True], "onload": [True, True]}
     page.close()
 
 

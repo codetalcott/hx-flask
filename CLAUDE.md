@@ -40,7 +40,8 @@ uv venv && uv pip install flask pytest playwright          # one-time setup
 
 .venv/bin/flask --app app hx lint templates static/js      # static htmx 4 lint of template source and scripts
 .venv/bin/flask --app app hx map                           # every control -> its handler, checked; exit 1 on errors
-HTMX_SRC=~/path/to/htmx-4.0.0 .venv/bin/python tools/gen_vocab.py   # regenerate hx_vocab.py
+git clone --depth 1 --branch v4.0.2 https://github.com/bigskysoftware/htmx /tmp/htmx-4.0.2
+HTMX_SRC=/tmp/htmx-4.0.2 .venv/bin/python tools/gen_vocab.py    # regenerate hx_vocab.py from that tag
 ```
 
 `pyproject.toml` sets `pythonpath = ["."]`, so tests import `hx`, `hxlint`, `app` as top-level modules.
