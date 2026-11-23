@@ -244,7 +244,7 @@ def _hyperscript(node: Node) -> list[tuple[str, int | None]]:
     attributes (None: the node's own line), and the body of a ``<script type="text/hyperscript">``,
     where behaviors are defined.
     """
-    found = [(node.attrs.get(attr) or "", None) for attr in HYPERSCRIPT_ATTRS]
+    found: list[tuple[str, int | None]] = [(node.attrs.get(attr) or "", None) for attr in HYPERSCRIPT_ATTRS]
     if node.tag == "script" and node.attrs.get("type") == HYPERSCRIPT_TYPE and node.text:
         found.append((node.text, node.text_line))
     return found
@@ -281,7 +281,7 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
         if not url or url.startswith(("#", "javascript:", "mailto:", "http")):
             return None
         boosted = True
-    if url is None:
+    if url is None or method is None:  # every branch that finds a url names its method; said for the type checker
         return None
 
     target = (node.resolved("hx-target") or "").strip()
@@ -341,6 +341,7 @@ def _ajax_control(file: str, line: int, element: str, args: list[str], resolve) 
     url = JINJA if url is None else url
     options = _object(args[2]) if len(args) > 2 and args[2].startswith("{") else ({"target": args[2]} if len(args) > 2 else {})
     target, source = options.get("target"), options.get("source")
+    literal_target = _literal(target)
     if "select" in options:
         scope, why = "full", "htmx.ajax select"
     elif target is None and source is None:
@@ -349,8 +350,8 @@ def _ajax_control(file: str, line: int, element: str, args: list[str], resolve) 
         scope, why = "full", "htmx.ajax target=body"
     elif target is None:
         scope, why = "unknown", "htmx.ajax target is the source's"
-    elif _literal(target) and JINJA not in _literal(target):
-        scope, why = "partial", f"htmx.ajax target={_literal(target)}"
+    elif literal_target is not None and JINJA not in literal_target:
+        scope, why = "partial", f"htmx.ajax target={literal_target}"
     else:
         scope, why = "unknown", "htmx.ajax target is computed"
     endpoint, problem = resolve(url, method.upper())
@@ -373,7 +374,9 @@ def _fetch_control(file: str, line: int, element: str, args: list[str], resolve)
 
 def _split_until(text: str, start: int, close: str) -> list[str] | None:
     """The top-level comma-separated parts from ``start`` to the unmatched ``close``, as source text."""
-    parts, current, depth, quote, i = [], [], 0, None, start
+    parts: list[str] = []
+    current: list[str] = []
+    depth, quote, i = 0, None, start
     while i < len(text):
         ch = text[i]
         if quote:
@@ -716,59 +719,59 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
                 f"{c.file}:{c.line} <{c.element}> {c.method} {c.url}: {c.problem}"
             )
             continue
-        h = handlers.get(c.endpoint)
-        if h is None:
+        handler = handlers.get(c.endpoint) if c.endpoint is not None else None
+        if handler is None:
             continue
-        h.controls.append(c)
+        handler.controls.append(c)
         if c.via == "fetch":
-            negotiates = sorted(h.verbs_for(c.method) & NEGOTIATING_VERBS)
+            negotiates = sorted(handler.verbs_for(c.method) & NEGOTIATING_VERBS)
             if negotiates:
                 m.warnings.append(
-                    f"{c.file}:{c.line} <{c.element}> calls fetch() on {c.method} {c.url}, but {h.label} chooses its answer "
+                    f"{c.file}:{c.line} <{c.element}> calls fetch() on {c.method} {c.url}, but {handler.label} chooses its answer "
                     f"from HX-Request-Type ({', '.join(verb_prefix + v for v in negotiates)}), which fetch never sends, so the "
                     f"script always gets the page. Call htmx.ajax() instead, and the map checks it like any control."
                 )
             continue
-        for hatch in sorted(h.escapes):
+        for hatch in sorted(handler.escapes):
             m.warnings.append(
-                f"{h.label} calls .{hatch}(); {c.file}:{c.line} <{c.element}> can no longer predict its DOM effect "
+                f"{handler.label} calls .{hatch}(); {c.file}:{c.line} <{c.element}> can no longer predict its DOM effect "
                 f"from the template. Keep the comment that says why."
             )
         if c.method == "DELETE" and not c.boosted:
-            delete_reads_body(h)
-            if not c.include and _in_scope(h.value_reads, "DELETE") and h.endpoint not in body_on_delete:
+            delete_reads_body(handler)
+            if not c.include and _in_scope(handler.value_reads, "DELETE") and handler.endpoint not in body_on_delete:
                 m.warnings.append(
-                    f"{c.file}:{c.line} <{c.element}> sends no form values on DELETE, but {h.label} reads request values; "
+                    f"{c.file}:{c.line} <{c.element}> sends no form values on DELETE, but {handler.label} reads request values; "
                     f'add hx-include="closest form".'
                 )
-        json = sorted(_in_scope(h.json_returns, c.method))
-        if json and not h.verbs_for(c.method) - LEAVING_VERBS:
+        json = sorted(_in_scope(handler.json_returns, c.method))
+        if json and not handler.verbs_for(c.method) - LEAVING_VERBS:
             # Every return is JSON: the control certainly gets it. Some other return: a branch may answer htmx with HTML.
-            certain = not _in_scope(h.other_returns, c.method)
+            certain = not _in_scope(handler.other_returns, c.method)
             (m.errors if certain else m.warnings).append(
-                f"{c.file}:{c.line} <{c.element}> reaches {h.label}, which {'returns' if certain else 'can return'} JSON "
+                f"{c.file}:{c.line} <{c.element}> reaches {handler.label}, which {'returns' if certain else 'can return'} JSON "
                 f"({' or '.join(json)}); htmx swaps a response as HTML, so the JSON text lands in the target. Answer with "
                 f"HTML ({verb_prefix}render/fragment/text), or call the endpoint with fetch() from the script that uses the data."
             )
             continue
-        if not h.verbs:
+        if not handler.verbs:
             m.warnings.append(
-                f"{c.file}:{c.line} <{c.element}> reaches {h.label} which calls no hx verb, so whether it answers "
+                f"{c.file}:{c.line} <{c.element}> reaches {handler.label} which calls no hx verb, so whether it answers "
                 f"with a page or a fragment cannot be checked; call {verb_prefix}render/page/fragment/text/removed "
                 f"(or the verb is in a helper the scanner cannot see)."
             )
             continue
-        verbs = h.verbs_for(c.method) - LEAVING_VERBS  # a login check does not hide a page-only handler
+        verbs = handler.verbs_for(c.method) - LEAVING_VERBS  # a login check does not hide a page-only handler
         if not verbs:
             continue
         if c.scope == "partial" and verbs <= PAGE_VERBS:
             m.errors.append(
-                f"{c.file}:{c.line} <{c.element}> targets an element ({c.why}) but {h.label} only calls {verb_prefix}page; "
+                f"{c.file}:{c.line} <{c.element}> targets an element ({c.why}) but {handler.label} only calls {verb_prefix}page; "
                 f"the page would land inside it. Target body, or give the handler a partial."
             )
         elif c.scope == "full" and verbs <= FRAGMENT_VERBS:
             m.errors.append(
-                f"{c.file}:{c.line} <{c.element}> wants a page ({c.why}) but {h.label} only calls "
+                f"{c.file}:{c.line} <{c.element}> wants a page ({c.why}) but {handler.label} only calls "
                 f"{verb_prefix}{'/'.join(sorted(verbs))}; a bare fragment would land in <body>."
             )
     for h in sorted(handlers.values(), key=lambda h: h.endpoint):

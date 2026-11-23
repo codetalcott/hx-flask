@@ -118,7 +118,8 @@ def parse_swap_spec(swap: str, default: str = "innerHTML") -> dict:
     style = default
     if swap and not re.match(r"^\S*:", swap):
         m = re.match(r"^(\S+)\s*(.*)$", swap, re.S)
-        style, swap = m.group(1), m.group(2)
+        if m is not None:  # always, once stripped and non-empty; said for the type checker
+            style, swap = m.group(1), m.group(2)
     return {"style": V.SWAP_ALIASES.get(style, style), **hcon_parse(swap)}
 
 
@@ -151,8 +152,9 @@ class Node:
     def describe(self) -> str:
         if self.attrs.get("id"):
             return f"{self.tag}#{self.attrs['id']}"
-        if self.attrs.get("class"):
-            return f"{self.tag}.{self.attrs['class'].split()[0]}"
+        classes = (self.attrs.get("class") or "").split()
+        if classes:
+            return f"{self.tag}.{classes[0]}"
         return self.tag
 
     def own(self, name: str) -> str | None:
@@ -271,8 +273,9 @@ class _Linter:
         self.nodes = list(root.descendants())
         self.ids: dict[str, list[Node]] = {}
         for n in self.nodes:
-            if n.attrs.get("id"):
-                self.ids.setdefault(n.attrs["id"], []).append(n)
+            node_id = n.attrs.get("id")
+            if node_id:
+                self.ids.setdefault(node_id, []).append(n)
         self.boosting = any(n.attrs.get("hx-boost:inherited") not in (None, "false") for n in self.nodes)
 
     def add(self, severity: str, rule: str, node: Node | None, message: str, line: int | None = None) -> None:
