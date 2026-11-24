@@ -259,6 +259,13 @@ def test_an_id_in_branches_only_one_of_which_renders_counts_once():
     assert lint_source('{% for r in rows %}<p id="t">{{ r }}</p>{% endfor %}') == []
 
 
+def test_a_branch_inside_a_start_tag_keeps_the_attributes_in_it():
+    # The attribute a branch tag sits right before keeps its name, so the rules still read it.
+    assert rules(lint_source('<button {% if a %}hx-swap="sideways"{% endif %}>x</button>')) == ["unknown-swap-style"]
+    assert rules(lint_source('<button hx-get="/a" {% if a %}hidden{% else %}hx-swap="sideways"{% endif %}>x</button>')) == ["unknown-swap-style"]
+    assert rules(lint_source('<div {% if a %}hx-boost="true"{% endif %}>x</div>')) == ["boost-not-inherited"]
+
+
 def test_rendered_html_knows_no_branches():
     html = '<html><body><h2 id="t">A</h2><p>{% if a %}</p><h2 id="t">B</h2></body></html>'  # text, not a tag
     assert rules(lint_html(html)) == ["duplicate-id"]

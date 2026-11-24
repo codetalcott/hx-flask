@@ -53,10 +53,14 @@ _BRANCH_MARK = re.compile(rf"{JINJA}(if|else|end){JINJA}")
 
 
 def branch_marker(tag: str) -> str | None:
-    """The marker for a template tag (its body: ``if a``, ``else``, ``- endfor -``) that opens, divides or closes branches."""
+    """
+    The marker for a template tag (its body: ``if a``, ``else``, ``- endfor -``) that opens, divides or
+    closes branches, spaced so that inside a start tag it is an attribute of its own: the attributes beside
+    ``<button {% if a %}hx-get="/a"{% else %}hx-get="/b"{% endif %}>`` keep their names.
+    """
     words = tag.strip(" \t\n-+~").split(None, 1)
     kind = _BRANCH_WORDS.get(words[0]) if words else None
-    return f"{JINJA}{kind}{JINJA}" if kind else None
+    return f" {JINJA}{kind}{JINJA} " if kind else None
 
 
 def shown(value: str) -> str:
