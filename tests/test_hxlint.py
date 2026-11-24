@@ -239,8 +239,36 @@ def test_ids_built_in_the_template_are_not_compared():
     assert lint_source('<input id="{{ form.name.id_for_label }}"><input id="{{ form.emails.id_for_label }}">') == []
     assert lint_source('{% for r in rows %}<tr id="row-{{ r.pk }}"></tr>{% endfor %}<tr id="row-{{ x.pk }}"></tr>') == []
     assert rules(lint_source('<img id="spinner"><img id="spinner">')) == ["duplicate-id"]
-    # The lint does not follow {% if %}: an id in two exclusive branches still counts twice (llms.txt says so).
-    assert rules(lint_source('{% if a %}<h2 id="t">A</h2>{% else %}<h2 id="t">B</h2>{% endif %}')) == ["duplicate-id"]
+
+
+def test_an_id_in_branches_only_one_of_which_renders_counts_once():
+    # Found by dj-hx's live test on a Django app: <img id="composite-image"> in each branch of {% if %} / {% else %}.
+    assert lint_source('{% if a %}<h2 id="t">A</h2>{% else %}<h2 id="t">B</h2>{% endif %}') == []
+    assert lint_source('{%- if a -%}<h2 id="t">A</h2>{% elif b %}<h2 id="t">B</h2>{%- else %}<p id="t">C</p>{% endif %}') == []
+    assert lint_source('{% for r in rows %}<p id="t">{{ r }}</p>{% else %}<p id="t">none</p>{% endfor %}') == []
+    assert lint_source('{% if a %}\n  <div><img id="t"></div>\n{% else %}\n  <img id="t">\n{% endif %}') == []
+    # Two that can render together: two separate {% if %}s, one outside the branch, one beside a nested if.
+    assert rules(lint_source('{% if a %}<h2 id="t">A</h2>{% endif %}{% if b %}<h2 id="t">B</h2>{% endif %}')) == ["duplicate-id"]
+    assert rules(lint_source('<h2 id="t">A</h2>{% if a %}<h2 id="t">B</h2>{% endif %}')) == ["duplicate-id"]
+    nested = '{% if a %}{% if b %}<i id="t"></i>{% endif %}<b id="t"></b>{% else %}<u id="t"></u>{% endif %}'
+    assert [f.message for f in lint_source(nested)] == ['id="t" appears 2 times (i, b); selectors and hx-indicator find only the first.']
+    # An id built from branches is computed, as one built with {{ }} is; a branch in a value moves nothing.
+    assert lint_source('<p id="{% if a %}x{% else %}y{% endif %}"></p><p id="{% if a %}x{% else %}y{% endif %}"></p>') == []
+    assert rules(lint_source('<p class="{% if a %}x{% else %}y{% endif %}" id="t"></p><p id="t"></p>')) == ["duplicate-id"]
+    # The limit llms.txt states: a literal id in a loop body is one element in the source.
+    assert lint_source('{% for r in rows %}<p id="t">{{ r }}</p>{% endfor %}') == []
+
+
+def test_a_branch_inside_a_start_tag_keeps_the_attributes_in_it():
+    # The attribute a branch tag sits right before keeps its name, so the rules still read it.
+    assert rules(lint_source('<button {% if a %}hx-swap="sideways"{% endif %}>x</button>')) == ["unknown-swap-style"]
+    assert rules(lint_source('<button hx-get="/a" {% if a %}hidden{% else %}hx-swap="sideways"{% endif %}>x</button>')) == ["unknown-swap-style"]
+    assert rules(lint_source('<div {% if a %}hx-boost="true"{% endif %}>x</div>')) == ["boost-not-inherited"]
+
+
+def test_rendered_html_knows_no_branches():
+    html = '<html><body><h2 id="t">A</h2><p>{% if a %}</p><h2 id="t">B</h2></body></html>'  # text, not a tag
+    assert rules(lint_html(html)) == ["duplicate-id"]
 
 
 def test_duplicate_ids_and_select_info():
