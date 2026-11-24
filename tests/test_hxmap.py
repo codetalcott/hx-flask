@@ -58,7 +58,7 @@ def test_map_reports_the_mismatches_a_dsl_could_not(make_app):
             <a href="/rows">rows as a page</a>
             <span hx-get="/nowhere" hx-trigger="load"></span>
             <div hx-trigger="orphan from:body" hx-get="{{ url_for('rows') }}" hx-target="#panel"></div>
-            <form><button hx-delete="/items" hx-target="tbody">bulk</button></form>
+            <form><button hx-delete="/items" hx-target="tbody" hx-swap="innerHTML swapEmpty:true">bulk</button></form>
             <div id="panel"></div>{% endblock %}""",
         "detail.html": "<html><body>detail</body></html>",
     }
@@ -358,7 +358,7 @@ def test_map_reports_json_returned_to_a_control(make_app):
             <button hx-get="{{ url_for('status') }}" hx-target="#msg">status</button>
             <button hx-get="{{ url_for('either') }}" hx-target="#msg">either</button>
             <button hx-get="{{ url_for('negotiated') }}" hx-target="#msg">negotiated</button>
-            <button hx-delete="{{ url_for('gone') }}" hx-target="#msg">gone</button>
+            <button hx-delete="{{ url_for('gone') }}" hx-target="#msg" hx-swap="innerHTML swapEmpty:true">gone</button>
             <button hx-get="{{ url_for('helper') }}" hx-target="#msg">helper</button>
             <div id="msg"></div>{% endblock %}""",
     }
@@ -445,6 +445,33 @@ def test_a_control_that_swaps_nothing_is_not_checked_for_its_answer(make_app):
     m = build_map(app)
     assert [e.split(",")[0] for e in m.errors] == ["page.html:5 <input> reaches save()"]
     assert m.warnings == []
+
+
+def test_a_control_that_would_keep_what_removed_empties_is_warned(make_app):
+    """htmx 4.0.2 skips an empty main swap when the reply carries an <hx-partial> (a bridged flash message,
+    .partial()), unless the swap is delete or says swapEmpty:true; so hx.removed() on any other swap leaves
+    the element where it was. A computed swap may be either, so it is not warned about."""
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <button hx-delete="{{ url_for('row', n=1) }}" hx-target="closest tr" hx-swap="delete">a</button>
+            <button hx-delete="{{ url_for('row', n=2) }}" hx-target="closest tr" hx-swap="outerHTML">b</button>
+            <button hx-delete="{{ url_for('row', n=3) }}" hx-target="closest tr" hx-swap="outerHTML swapEmpty:true">c</button>
+            <button hx-delete="{{ url_for('row', n=4) }}" hx-target="closest tr">d</button>
+            <button hx-delete="{{ url_for('row', n=5) }}" hx-target="closest tr" hx-swap="{{ swap }}">e</button>
+            {% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.delete("/rows/<int:n>")
+    def row(n):
+        return hx.removed()
+
+    m = build_map(app)
+    assert m.errors == []
+    assert [w.split(" reaches")[0] for w in m.warnings] == ["page.html:3 <button>", "page.html:5 <button>"]
+    assert "row(), which can answer hx.removed()" in m.warnings[0] and 'hx-swap="delete"' in m.warnings[0]
 
 
 def test_a_computed_value_is_shown_as_its_author_wrote_it(make_app):

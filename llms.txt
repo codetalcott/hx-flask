@@ -189,7 +189,11 @@ reads the `HX-Trigger` request header, a handler that reads `request.form`
 on DELETE, and a control reaching a handler whose every return is JSON
 (`jsonify(...)`, a dict or a list, alone or with a status). The last three need
 no hx verb in the handler. It warns on a control reaching a handler that calls no
-hx verb, or that returns JSON on some branch and has no verb; a handler that calls
+hx verb, or that returns JSON on some branch and has no verb; a control targeting
+an element whose `hx-swap` is neither `delete` nor `swapEmpty:true` reaching a
+handler that can answer `hx.removed()`, since htmx 4 skips an empty swap when the
+reply carries an `<hx-partial>` (the flash bridge's included) and the element
+stays; a handler that calls
 `.retarget()` or `.reswap()`; a handler that reads `HX-Target` or `HX-Source`; a
 DELETE control without `hx-include="closest form"` whose handler reads request
 values; a `fetch()` to a handler that calls `hx.render` or `hx.invalid`, which
