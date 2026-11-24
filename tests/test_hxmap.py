@@ -4,6 +4,7 @@ import io
 
 import pytest
 
+import mapcore
 from hxmap import build_map, print_map
 
 
@@ -91,6 +92,46 @@ def test_map_reports_the_mismatches_a_dsl_could_not(make_app):
     assert "event 'nobody-listens' is announced by rows() but nothing in the templates listens" in warnings
     assert "<button> sends no form values on DELETE, but items() reads request values" in warnings
     assert len(m.errors) == 3 and len(m.warnings) == 3
+
+
+BODY = '<html><body hx-boost:inherited="true"><nav><a href="/n">n</a></nav> </body></html>'
+BOOST = {
+    # the layout boosts at <body> (README's install step): every template's links are boosted
+    "body": ({"layout.html": BODY, "page.html": '<a href="/p">p</a>'}, ["/n", "/p"]),
+    "body, and a link that opts out": ({"layout.html": BODY, "page.html": '<a href="/p" hx-boost="false">p</a>'}, ["/n"]),
+    # a pager boosts its own links, a form itself: neither reaches a link in another file
+    "an include": (
+        {
+            "pager.html": '<div hx-boost:inherited="true"><a href="/2">2</a></div>',
+            "page.html": '<a href="/p">p</a><form action="/f" hx-boost="true"></form>',
+        },
+        ["/2", "/f"],
+    ),
+    "a layout that boosts its nav": (
+        {
+            "layout.html": '<html><body><nav hx-boost:inherited="true"><a href="/n">n</a></nav> </body></html>',
+            "page.html": '<a href="/p">p</a>',
+        },
+        ["/n"],
+    ),
+    # The stated limit: /p is boosted in the browser, through the block the wrapper holds, and the map does
+    # not follow {% extends %}. README says to boost at <body> and opt out below it.
+    "a wrapper around a block": (
+        {
+            "layout.html": '<html><body><main hx-boost:inherited="true"> </main></body></html>',
+            "page.html": '<a href="/p">p</a>',
+        },
+        [],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", BOOST)
+def test_a_plain_link_is_boosted_where_an_hx_boost_reaches_it(case):
+    sources, boosted = BOOST[case]
+    controls, *_ = mapcore.scan_templates(sources, lambda url, method: (None, None))
+    assert sorted(c.url for c in controls if c.boosted) == boosted
+    assert all(c.boosted for c in controls)  # and a link nothing boosts is no control at all
 
 
 def test_map_treats_script_dispatched_events_as_announced(make_app):

@@ -175,7 +175,13 @@ still counts once, though the loop may render it many times.
 
 The map's controls are `hx-*` attributes, boosted links and forms, and
 `htmx.ajax(verb, url, options)` calls with a literal verb, in a `<script>` or an
-attribute such as `@click`. htmx 4 scopes an `htmx.ajax` call: `target:
+attribute such as `@click`. A plain `<a href>` or `<form action>` is boosted
+where an `hx-boost` reaches it: its own, an ancestor's `hx-boost:inherited` in
+the same file, or one on `<body>` or `<html>` in any template, which reaches
+every file. The map does not follow `{% extends %}` or `{% include %}`, so a
+wrapper that boosts the block it holds (`<main hx-boost:inherited="true">`)
+is not seen to boost the pages that fill it: boost at `<body>`, and opt out
+below it with `hx-boost:inherited="false"`. htmx 4 scopes an `htmx.ajax` call: `target:
 document.body`, or no target and no source, is a full request. An `hx-action`
 control sends its own `hx-method`, else an ancestor's `hx-method:inherited`,
 else its `method` attribute (`<form method="post">`), else GET, as htmx 4.0.2

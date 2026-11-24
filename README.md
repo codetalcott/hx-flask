@@ -53,7 +53,12 @@ Then:
 1. `HX(app, flash_template="layout.html")`, or `HX(flash_template=...).init_app(app)`
    in a factory. The CLI takes a factory too: `flask --app "pkg:create_app()" hx map`.
 2. Load htmx 4 (`static/js/htmx-4.0.0.js` here) and boost with
-   `<body hx-boost:inherited="true">`.
+   `<body hx-boost:inherited="true">`. The map reads each template by itself,
+   so it takes a boost on `<body>` or `<html>` to reach every template, and one
+   on any other element to reach only what that element holds in its own file.
+   A wrapper that boosts the block it holds (`<main hx-boost:inherited="true">`)
+   boosts the page in the browser and not in the map: boost at `<body>` and put
+   `hx-boost:inherited="false"` on what should stay plain.
 3. Give every control `url_for(...)`. The map cannot resolve a URL built by
    hand, and warns instead of checking it.
 4. In tests, send the headers htmx 4 sends:
