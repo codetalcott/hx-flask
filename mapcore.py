@@ -24,6 +24,10 @@ or ``HX-Target`` / ``HX-Source`` (a warning), a handler that reads the
 request body on DELETE, which htmx 4 sends as query parameters (an error), and
 a control that reaches a handler returning JSON, which htmx swaps as HTML.
 
+A link or form is boosted where an ``hx-boost`` reaches it: its own, an ancestor's
+``hx-boost:inherited`` in the same file, or one on ``<body>`` or ``<html>`` in any
+template, which is taken to reach every file (``scan_templates`` says why).
+
 A control is an ``hx-*`` attribute, a boosted link or form, or a literal
 ``htmx.ajax(verb, url, {target})`` call in a script or an attribute such as
 Alpine's ``@click``. An ``hx-action`` control sends what ``action_method`` reads,
@@ -215,8 +219,12 @@ def scan_templates(
 ) -> tuple[list[Control], list[Listener], set[str], bool]:
     """``sources`` are already preprocessed: expressions are ``JINJA``, url tags are ``URLFOR:name``."""
     trees = {name: parse(src)[0] for name, src in sources.items()}
+    # Templates are read one file at a time: {% extends %} and {% include %} are not followed. So an
+    # hx-boost:inherited reaches every file only from <body> or <html>, where a layout boosts its pages;
+    # on any other element (a pager, a nav) it reaches what that element holds in its own file.
     boosting = any(
-        n.attrs.get("hx-boost:inherited") not in (None, "false") for root in trees.values() for n in root.descendants()
+        n.tag in ("body", "html") and n.attrs.get("hx-boost:inherited") not in (None, "false")
+        for root in trees.values() for n in root.descendants()
     )
     script_names: set[str] = set()
     for src in sources.values():
@@ -275,7 +283,8 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
     if url is None and node.own("hx-action") is not None:
         url = node.own("hx-action")
         method = action_method(node)
-    if url is None and boosting and node.tag in ("a", "form") and node.resolved("hx-boost") != "false":
+    reach = node.resolved("hx-boost")  # its own hx-boost, else an ancestor's hx-boost:inherited in this file
+    if url is None and node.tag in ("a", "form") and (reach != "false" if boosting else reach not in (None, "false")):
         if node.tag == "a":
             url, method = node.attrs.get("href"), "GET"
         else:

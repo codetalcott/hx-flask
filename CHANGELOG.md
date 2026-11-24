@@ -12,6 +12,14 @@
 
 ### Fixed
 
+- `hx map` reads a plain link or form as boosted only where an `hx-boost`
+  reaches it: its own, an ancestor's `hx-boost:inherited` in the same file, or
+  one on `<body>` or `<html>`, which reaches every template. Any
+  `hx-boost:inherited` anywhere used to boost every link in every template: on
+  a Django project (dj-hx vendors the map) that boosts two pagers, a
+  next/previous bar and one form, 822 of 921 controls were plain links read as
+  boosted, where 9 are. A wrapper that boosts the block it holds is no longer
+  read as boosting the pages that fill it; README says to boost at `<body>`.
 - `hx map` no longer checks what a handler answers a control with
   `hx-swap="none"` (its own or an ancestor's `hx-swap:inherited`): the answer is
   put nowhere, so a JSON reply, a page or a handler with no hx verb cannot land
