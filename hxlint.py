@@ -63,9 +63,12 @@ def branch_marker(tag: str) -> str | None:
     return f" {JINJA}{kind}{JINJA} " if kind else None
 
 
+_BRANCH_SHOWN = re.compile(rf"\s*{_BRANCH_MARK.pattern} ?")  # with the marker's padding and a stripper's newlines
+
+
 def shown(value: str) -> str:
     """``value`` as its author wrote it, near enough: a branch tag back as ``{%…%}``, an expression as ``{{…}}``."""
-    return _BRANCH_MARK.sub("{%…%}", value).replace(JINJA, "{{…}}")
+    return _BRANCH_SHOWN.sub("{%…%}", value).replace(JINJA, "{{…}}")
 
 
 SELECTOR_HEADS = {"closest", "next", "previous", "find", "findAll", "global"}

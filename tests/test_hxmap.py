@@ -454,6 +454,11 @@ def test_a_computed_value_is_shown_as_its_author_wrote_it(make_app):
     }
     m = build_map(make_app(templates))
     assert m.warnings == ["page.html:2 <form#{{…}}> POST {{…}}: computed URL; cannot resolve statically"]
+    from hxlint import JINJA, branch_marker, shown
+
+    # A branch tag, with the padding branch_marker() gives it and the newlines a stripper keeps, shows as {%…%}.
+    assert shown(f"{branch_marker('if a')}x-{JINJA}{branch_marker('endif')}row") == "{%…%}x-{{…}}{%…%}row"
+    assert shown(f"\n\n{branch_marker('else')}y") == "{%…%}y"
 
 
 def test_by_template_says_who_renders_each_block(app):
