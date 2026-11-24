@@ -156,6 +156,13 @@ test that sends only `HX-Request`, as htmx 2 did, raises `HxProtocolError`.
     flask --app app hx lint templates static/js   # htmx 4 vocabulary over templates and scripts; exit 1 on errors
     flask --app app hx map              # every control -> its handler, full or partial, checked
     flask --app app hx map --by-template   # the same map keyed by template#block: who renders it
+    flask --app app hx map --json       # the map as one JSON object, for a script; same exit status
+
+`hx map --json` (`mapcore.map_json()`) prints `{"handlers": [{"endpoint", "name", "rules", "verbs",
+"templates", "announces", "escapes"}], "controls": [{"file", "line", "element", "method", "url", "endpoint",
+"scope", "why", "via"}], "listeners": [{"file", "line", "element", "event"}], "summary": {...}}`, plus
+`"errors"` and `"warnings"` unless `--no-check`. A control's `endpoint` is the handler that answers it, or
+null. Every list is sorted, so two runs over one app print one document. It has no `--by-template` form.
 
 The lint errors on htmx 2 vocabulary and on a plain `hx-boost` anywhere but
 `<a>`/`<form>` (`boost-not-inherited`: `<body hx-boost="true">` boosts nothing);

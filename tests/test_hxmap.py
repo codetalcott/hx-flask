@@ -843,3 +843,51 @@ def test_an_inherited_hx_select_makes_the_request_full(make_app):
         "page.html:3 <button> wants a page (hx-select:inherited from div#card) but notify() only calls hx.text; "
         "a bare fragment would land in <body>.",
     ]
+
+
+def test_json_is_the_whole_map_for_a_script(app):
+    import json
+
+    out = io.StringIO()
+    assert print_map(app, out=out, as_json=True) == 0
+    doc = json.loads(out.getvalue())
+    assert doc["summary"] == {"controls": 20, "fetch_calls": 0, "handlers": 15, "errors": 0, "warnings": 0}
+    assert doc["errors"] == [] and doc["warnings"] == []
+    assert {
+        "file": "index.html", "line": 9, "element": "input#search", "method": "GET", "url": "url:contacts",
+        "endpoint": "contacts", "scope": "partial", "why": "hx-target=tbody", "via": None,
+    } in doc["controls"]
+    contacts = next(h for h in doc["handlers"] if h["endpoint"] == "contacts")
+    assert (contacts["rules"], contacts["verbs"], contacts["templates"]) == (["GET /contacts"], ["render"], ["index.html#rows"])
+    assert {"file": "archive_ui.html", "line": 8, "element": "div", "event": "load"} in doc["listeners"]
+    unchecked = io.StringIO()
+    print_map(app, out=unchecked, check=False, as_json=True)
+    assert "errors" not in json.loads(unchecked.getvalue()) and "errors" not in json.loads(unchecked.getvalue())["summary"]
+    with pytest.raises(ValueError, match="no by-template form"):
+        print_map(app, out=io.StringIO(), as_json=True, by_template=True)
+
+
+def test_json_is_one_document_whatever_order_the_scan_finds_things_in():
+    """The text map's order follows set iteration, which PYTHONHASHSEED changes; the JSON's is sorted."""
+    import os
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    flask = Path(sys.executable).with_name("flask")
+
+    def run(seed):
+        env = {**os.environ, "PYTHONHASHSEED": str(seed)}
+        return subprocess.run([str(flask), "--app", "app", "hx", "map", "--json"], cwd=root, env=env, capture_output=True, text=True, check=True).stdout
+
+    assert run(1) == run(2) == run(3)
+
+
+def test_the_cli_refuses_json_by_template():
+    from click.testing import CliRunner
+
+    from hx import _cli
+
+    result = CliRunner().invoke(_cli, ["map", "--json", "--by-template"])
+    assert result.exit_code == 2 and "no by-template form" in result.output

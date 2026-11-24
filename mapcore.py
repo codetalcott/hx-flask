@@ -39,6 +39,7 @@ handler asks ``HX-Request-Type``, which fetch never sends.
 from __future__ import annotations
 
 import ast
+import json
 import re
 import sys
 from collections.abc import Callable, Iterable
@@ -58,6 +59,7 @@ __all__ = [
     "scan_function",
     "check",
     "print_map",
+    "map_json",
     "format_map",
     "format_by_template",
     "PAGE_VERBS",
@@ -885,7 +887,63 @@ def format_by_template(m: Map) -> str:
     return "\n".join(lines) + "\n"
 
 
-def print_map(m: Map, check_: bool = True, out=None, by_template: bool = False) -> int:
-    """Write the map; one write, so a framework's output wrapper adds no blank lines."""
-    (out or sys.stdout).write(format_by_template(m) if by_template else format_map(m, check_))
+def map_json(m: Map, check_: bool = True) -> dict:
+    """
+    The map as one JSON-ready object, for a script: every handler, every control (each names the
+    endpoint that answers it, or None), every listener, and a summary; the errors and warnings only
+    when ``check_`` is, as in the text. Lists are sorted, so two runs over one project give one document.
+    """
+    fetches = sum(c.via == "fetch" for c in m.controls)
+    doc: dict = {
+        "handlers": [
+            {
+                "endpoint": h.endpoint,
+                "name": h.name or h.endpoint,
+                "rules": list(h.rules),
+                "verbs": sorted(h.verbs),
+                "templates": sorted(h.templates),
+                "announces": sorted(h.announces),
+                "escapes": sorted(h.escapes),
+            }
+            for h in sorted(m.handlers.values(), key=lambda h: h.endpoint)
+        ],
+        "controls": [
+            {
+                "file": c.file,
+                "line": c.line,
+                "element": c.element,
+                "method": c.method,
+                "url": c.url,
+                "endpoint": c.endpoint,
+                "scope": c.scope,
+                "why": c.why,
+                "via": c.via or None,
+            }
+            for c in sorted(m.controls, key=lambda c: (c.file, c.line, c.element, c.method, c.url))
+        ],
+        "listeners": [
+            {"file": li.file, "line": li.line, "element": li.element, "event": li.event}
+            for li in sorted(m.listeners, key=lambda li: (li.file, li.line, li.element, li.event))
+        ],
+        "summary": {"controls": len(m.controls) - fetches, "fetch_calls": fetches, "handlers": len(m.handlers)},
+    }
+    if check_:
+        doc["errors"] = list(m.errors)
+        doc["warnings"] = list(m.warnings)
+        doc["summary"].update(errors=len(m.errors), warnings=len(m.warnings))
+    return doc
+
+
+def print_map(m: Map, check_: bool = True, out=None, by_template: bool = False, as_json: bool = False) -> int:
+    """
+    Write the map; one write, so a framework's output wrapper adds no blank lines. ``as_json`` writes
+    ``map_json()`` instead, which has no by-template form: a script can group the handlers' templates.
+    """
+    if as_json and by_template:
+        raise ValueError("the map's JSON has no by-template form; pass one of as_json and by_template")
+    if as_json:
+        text = json.dumps(map_json(m, check_), indent=2) + "\n"
+    else:
+        text = format_by_template(m) if by_template else format_map(m, check_)
+    (out or sys.stdout).write(text)
     return 1 if (check_ and m.errors) else 0
