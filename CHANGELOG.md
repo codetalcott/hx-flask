@@ -4,6 +4,12 @@
 
 ### Added
 
+- `flask hx map --json` and `mapcore.map_json()`: the map as one JSON object
+  for a script (handlers, controls with the endpoint each reaches, listeners,
+  a summary, and the errors and warnings unless `--no-check`), with the same
+  exit status. Its lists are sorted, so it does not change between runs as the
+  text map's order does. dj-hx's `manage.py hx_map --json` prints the same
+  object.
 - `hx map` warns on a control targeting an element whose `hx-swap` is neither
   `delete` nor `swapEmpty:true` when its handler can answer `hx.removed()`.
   htmx 4.0.2 skips an empty main swap when the reply carries an `<hx-partial>`,

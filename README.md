@@ -35,6 +35,7 @@ uv pip install pytest playwright
 .venv/bin/flask --app app hx lint templates         # the static lint
 .venv/bin/flask --app app hx map                    # controls <-> handlers, checked
 .venv/bin/flask --app app hx map --by-template      # the same map, read from the templates
+.venv/bin/flask --app app hx map --json             # the map as one JSON object, for a script
 ```
 
 ## Use it in your app

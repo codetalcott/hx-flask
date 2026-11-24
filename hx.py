@@ -533,9 +533,12 @@ def _cli_lint(paths):
 @_cli.command("map")
 @click.option("--check/--no-check", default=True, help="Also check controls against the verbs their handlers call.")
 @click.option("--by-template", is_flag=True, help="Group by template and block: who renders each one.")
-def _cli_map(check, by_template):
+@click.option("--json", "as_json", is_flag=True, help="Print the map as one JSON object; the exit status is the same.")
+def _cli_map(check, by_template, as_json):
     """Map every control in the templates to the handler that answers it."""
     import hxmap
 
-    code = hxmap.print_map(current_app, check=check, by_template=by_template)
+    if as_json and by_template:
+        raise click.UsageError("--json prints the whole map, with no by-template form; pass one of them.")
+    code = hxmap.print_map(current_app, check=check, by_template=by_template, as_json=as_json)
     sys.exit(code)
