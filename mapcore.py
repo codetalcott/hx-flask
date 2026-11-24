@@ -144,6 +144,9 @@ class Control:
     problem: str | None = None
     via: str = ""  # "" for an attribute or a boosted element; "htmx.ajax" or "fetch" for a call in script
     swaps: bool = True  # False for hx-swap="none": the answer is put nowhere, so what it is cannot be wrong
+    # True when htmx 4 swaps an empty reply that carries an <hx-partial> (hx-swap="delete", or swapEmpty:true),
+    # False when it skips it, None when the swap is computed or the control is a script's.
+    swaps_empty: bool | None = None
 
 
 @dataclass
@@ -299,11 +302,13 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
         scope, why = "partial", f"hx-target={target}" if target else "no hx-target"
 
     swap = node.resolved("hx-swap")
-    swaps = not (swap and JINJA not in swap and parse_swap_spec(swap)["style"] == "none")
+    spec = parse_swap_spec(swap or "innerHTML") if not (swap and JINJA in swap) else None
+    swaps = not (spec and spec["style"] == "none")
+    swaps_empty = None if spec is None else spec["style"] == "delete" or spec.get("swapEmpty") is True
     endpoint, problem = resolve(url, method)
     return Control(
         file, node.line, node.describe(), method, shown(url.replace(URLFOR, "url:")), endpoint, scope, why, boosted,
-        node.resolved("hx-include") is not None, problem, swaps=swaps,
+        node.resolved("hx-include") is not None, problem, swaps=swaps, swaps_empty=swaps_empty,
     )
 
 
@@ -778,6 +783,12 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
             m.errors.append(
                 f"{c.file}:{c.line} <{c.element}> wants a page ({c.why}) but {handler.label} only calls "
                 f"{verb_prefix}{'/'.join(sorted(verbs))}; a bare fragment would land in <body>."
+            )
+        if c.scope == "partial" and c.swaps_empty is False and "removed" in verbs:
+            m.warnings.append(
+                f"{c.file}:{c.line} <{c.element}> reaches {handler.label}, which can answer {verb_prefix}removed(), but "
+                f"htmx 4 skips an empty swap when the reply carries an <hx-partial> (a bridged message, .partial()), so the "
+                f'element would stay. Use hx-swap="delete", or add swapEmpty:true when the handler can also answer with content.'
             )
     for h in sorted(handlers.values(), key=lambda h: h.endpoint):
         if h.methods == {"DELETE"}:

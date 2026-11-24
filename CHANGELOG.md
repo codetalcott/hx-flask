@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Added
+
+- `hx map` warns on a control targeting an element whose `hx-swap` is neither
+  `delete` nor `swapEmpty:true` when its handler can answer `hx.removed()`.
+  htmx 4.0.2 skips an empty main swap when the reply carries an `<hx-partial>`,
+  so with a flashed message bridged into the reply the element stays on the
+  page. Found by a browser test of a Django app on dj-hx, which vendors the map.
+
 ### Fixed
 
 - `hx map` no longer checks what a handler answers a control with
