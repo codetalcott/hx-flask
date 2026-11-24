@@ -413,6 +413,49 @@ def test_map_reports_json_returned_to_a_control(make_app):
     assert m.handlers["gone"].json_returns == {"GET": {"a dict"}}
 
 
+def test_a_control_that_swaps_nothing_is_not_checked_for_its_answer(make_app):
+    """hx-swap="none" puts the answer nowhere, so JSON, a page or no verb at all cannot land wrong: the common
+    save-on-change field. A computed swap may be anything, so it is still checked."""
+    from flask import render_template
+
+    from hx import hx
+
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <input name="title" hx-post="{{ url_for('save') }}" hx-trigger="change" hx-swap="none">
+            <div hx-swap:inherited="none"><button hx-get="{{ url_for('page') }}" hx-target="#msg">page</button></div>
+            <button hx-get="{{ url_for('plain') }}" hx-swap="none">plain</button>
+            <input name="body" hx-post="{{ url_for('save') }}" hx-swap="{{ swap }}">
+            <div id="msg"></div>{% endblock %}""",
+    }
+    app = make_app(templates)
+
+    @app.post("/save")
+    def save():
+        return {"saved": True}
+
+    @app.get("/page")
+    def page():
+        return hx.page("page.html")
+
+    @app.get("/plain")
+    def plain():
+        return render_template("page.html")
+
+    m = build_map(app)
+    assert [e.split(",")[0] for e in m.errors] == ["page.html:5 <input> reaches save()"]
+    assert m.warnings == []
+
+
+def test_a_computed_value_is_shown_as_its_author_wrote_it(make_app):
+    templates = {
+        "page.html": """{% extends "layout.html" %}{% block content %}
+            <form id="{{ form_id }}" hx-post="{{ action }}">x</form>{% endblock %}""",
+    }
+    m = build_map(make_app(templates))
+    assert m.warnings == ["page.html:2 <form#{{…}}> POST {{…}}: computed URL; cannot resolve statically"]
+
+
 def test_by_template_says_who_renders_each_block(app):
     out = io.StringIO()
     assert print_map(app, out=out, by_template=True) == 0

@@ -42,7 +42,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import hx_vocab as vocab
-from hxlint import HYPERSCRIPT_ATTRS, HYPERSCRIPT_TYPE, JINJA, Node, parse, parse_trigger_specs
+from hxlint import HYPERSCRIPT_ATTRS, HYPERSCRIPT_TYPE, JINJA, Node, parse, parse_swap_spec, parse_trigger_specs, shown
 
 __all__ = [
     "URLFOR",
@@ -143,6 +143,7 @@ class Control:
     include: bool = False
     problem: str | None = None
     via: str = ""  # "" for an attribute or a boosted element; "htmx.ajax" or "fetch" for a call in script
+    swaps: bool = True  # False for hx-swap="none": the answer is put nowhere, so what it is cannot be wrong
 
 
 @dataclass
@@ -297,10 +298,12 @@ def _control_for(file: str, node: Node, boosting: bool, resolve) -> Control | No
     else:
         scope, why = "partial", f"hx-target={target}" if target else "no hx-target"
 
+    swap = node.resolved("hx-swap")
+    swaps = not (swap and JINJA not in swap and parse_swap_spec(swap)["style"] == "none")
     endpoint, problem = resolve(url, method)
     return Control(
-        file, node.line, node.describe(), method, url.replace(URLFOR, "url:"), endpoint, scope, why, boosted,
-        node.resolved("hx-include") is not None, problem,
+        file, node.line, node.describe(), method, shown(url.replace(URLFOR, "url:")), endpoint, scope, why, boosted,
+        node.resolved("hx-include") is not None, problem, swaps=swaps,
     )
 
 
@@ -337,7 +340,7 @@ def _ajax_control(file: str, line: int, element: str, args: list[str], resolve) 
     if not method or len(args) < 2:
         return None
     url = _literal(args[1])
-    shown = args[1] if url is None else url.replace(URLFOR, "url:")
+    written = shown(args[1] if url is None else url.replace(URLFOR, "url:"))
     url = JINJA if url is None else url
     options = _object(args[2]) if len(args) > 2 and args[2].startswith("{") else ({"target": args[2]} if len(args) > 2 else {})
     target, source = options.get("target"), options.get("source")
@@ -356,7 +359,7 @@ def _ajax_control(file: str, line: int, element: str, args: list[str], resolve) 
         scope, why = "unknown", "htmx.ajax target is computed"
     endpoint, problem = resolve(url, method.upper())
     # A source's own values go with the request as htmx collects them; nothing here can add hx-include.
-    return Control(file, line, element, method.upper(), shown, endpoint, scope, why, include=True, problem=problem, via="htmx.ajax")
+    return Control(file, line, element, method.upper(), written, endpoint, scope, why, include=True, problem=problem, via="htmx.ajax")
 
 
 def _fetch_control(file: str, line: int, element: str, args: list[str], resolve) -> Control | None:
@@ -744,6 +747,8 @@ def check(handlers: dict[str, Handler], controls: list[Control], listeners: list
                     f"{c.file}:{c.line} <{c.element}> sends no form values on DELETE, but {handler.label} reads request values; "
                     f'add hx-include="closest form".'
                 )
+        if not c.swaps:
+            continue  # hx-swap="none": JSON, a page or a fragment are all put nowhere
         json = sorted(_in_scope(handler.json_returns, c.method))
         if json and not handler.verbs_for(c.method) - LEAVING_VERBS:
             # Every return is JSON: the control certainly gets it. Some other return: a branch may answer htmx with HTML.

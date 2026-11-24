@@ -34,10 +34,36 @@ from typing import Iterable
 
 import hx_vocab as V
 
-__all__ = ["Finding", "lint_html", "lint_source", "lint_script", "lint_paths", "hcon_parse", "hcon_split", "parse_trigger_specs", "parse_swap_spec", "parse", "Node"]
+__all__ = ["Finding", "lint_html", "lint_source", "lint_script", "lint_paths", "hcon_parse", "hcon_split", "parse_trigger_specs", "parse_swap_spec", "parse", "Node", "shown", "branch_marker"]
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 JINJA = "__JINJA__"
+
+# A template tag that opens, divides or closes branches only one of which renders: {% if %} / {% elif %} /
+# {% else %}, {% for %} / {% empty %} (Jinja's {% for %} / {% else %}), {% ifchanged %} / {% else %}. A
+# template stripper writes branch_marker()'s marker in its place, so the tree parsed from the source knows
+# which elements can render together (duplicate-id). The marker holds JINJA, so an attribute value built
+# from branches reads as computed, like one built with {{ }}.
+_BRANCH_WORDS = {
+    "if": "if", "for": "if", "ifchanged": "if",
+    "elif": "else", "else": "else", "empty": "else",
+    "endif": "end", "endfor": "end", "endifchanged": "end",
+}
+_BRANCH_MARK = re.compile(rf"{JINJA}(if|else|end){JINJA}")
+
+
+def branch_marker(tag: str) -> str | None:
+    """The marker for a template tag (its body: ``if a``, ``else``, ``- endfor -``) that opens, divides or closes branches."""
+    words = tag.strip(" \t\n-+~").split(None, 1)
+    kind = _BRANCH_WORDS.get(words[0]) if words else None
+    return f"{JINJA}{kind}{JINJA}" if kind else None
+
+
+def shown(value: str) -> str:
+    """``value`` as its author wrote it, near enough: a branch tag back as ``{%…%}``, an expression as ``{{…}}``."""
+    return _BRANCH_MARK.sub("{%…%}", value).replace(JINJA, "{{…}}")
+
+
 SELECTOR_HEADS = {"closest", "next", "previous", "find", "findAll", "global"}
 # htmx 2 event names, lowercased without hyphens: attribute names reach the lint lowercased, and htmx 2 also
 # fired each event in kebab-case, the form its docs used (hx-on::after-request).
@@ -127,7 +153,7 @@ def parse_swap_spec(swap: str, default: str = "innerHTML") -> dict:
 
 
 class Node:
-    __slots__ = ("tag", "attrs", "children", "parent", "line", "text", "text_line")
+    __slots__ = ("tag", "attrs", "children", "parent", "line", "text", "text_line", "branches")
 
     def __init__(self, tag: str, attrs: dict[str, str | None], parent: Node | None, line: int):
         self.tag = tag
@@ -137,6 +163,13 @@ class Node:
         self.line = line
         self.text = ""  # a <script>'s source; other elements' text is not kept
         self.text_line = line
+        # Over template source: (block, branch) for each {% if %} / {% for %} the element is inside, outermost first
+        self.branches: tuple[tuple[int, int], ...] = ()
+
+    def renders_beside(self, other: Node) -> bool:
+        """False when the two sit in different branches of one {% if %} (or a {% for %} and its {% empty %})."""
+        mine = dict(self.branches)
+        return all(mine.get(block, branch) == branch for block, branch in other.branches)
 
     def ancestors(self) -> Iterable[Node]:
         n = self.parent
@@ -150,11 +183,12 @@ class Node:
             yield from c.descendants()
 
     def describe(self) -> str:
-        if self.attrs.get("id"):
-            return f"{self.tag}#{self.attrs['id']}"
+        id_ = self.attrs.get("id")
+        if id_:
+            return f"{self.tag}#{shown(id_)}"
         classes = (self.attrs.get("class") or "").split()
         if classes:
-            return f"{self.tag}.{classes[0]}"
+            return f"{self.tag}.{shown(classes[0])}"
         return self.tag
 
     def own(self, name: str) -> str | None:
@@ -188,10 +222,17 @@ class _TreeBuilder(HTMLParser):
         self.root = Node("#root", {}, None, 0)
         self.stack = [self.root]
         self.scripts: list[str] = []
+        self.blocks = 0
+        self.open_branches: list[list[int]] = []  # [block, branch] per {% if %} / {% for %} open here
+
+    def _element(self, tag, attrs) -> Node:
+        node = Node(tag, {k: v for k, v in attrs}, self.stack[-1], self.getpos()[0])
+        node.branches = tuple((block, branch) for block, branch in self.open_branches)
+        self.stack[-1].children.append(node)
+        return node
 
     def handle_starttag(self, tag, attrs):
-        node = Node(tag, {k: v for k, v in attrs}, self.stack[-1], self.getpos()[0])
-        self.stack[-1].children.append(node)
+        node = self._element(tag, attrs)
         if tag == "script":
             src = node.attrs.get("src")
             if src:
@@ -201,12 +242,22 @@ class _TreeBuilder(HTMLParser):
             self.stack.append(node)
 
     def handle_data(self, data):
+        # A branch marker in an attribute is read as part of that value (computed); here, between elements,
+        # it moves which branch the elements after it are in. An unbalanced one is ignored, not guessed at.
+        for m in _BRANCH_MARK.finditer(data):
+            if m.group(1) == "if":
+                self.blocks += 1
+                self.open_branches.append([self.blocks, 0])
+            elif self.open_branches:
+                if m.group(1) == "else":
+                    self.open_branches[-1][1] += 1
+                else:
+                    self.open_branches.pop()
         if self.stack[-1].tag == "script":
-            self.stack[-1].text += data
+            self.stack[-1].text += _BRANCH_MARK.sub("", data)
 
     def handle_startendtag(self, tag, attrs):
-        node = Node(tag, {k: v for k, v in attrs}, self.stack[-1], self.getpos()[0])
-        self.stack[-1].children.append(node)
+        self._element(tag, attrs)
 
     def handle_endtag(self, tag):
         for i in range(len(self.stack) - 1, 0, -1):
@@ -314,9 +365,11 @@ class _Linter:
         for id_, nodes in self.ids.items():
             # An id built in the template ({{ field.id_for_label }}) is unknown until it renders: two such ids
             # are not the same id, and the source says nothing about which is which.
-            if len(nodes) > 1 and JINJA not in id_:
-                tags = ", ".join(n.tag for n in nodes)
-                self.add("error", "duplicate-id", nodes[1], f'id="{id_}" appears {len(nodes)} times ({tags}); selectors and hx-indicator find only the first.')
+            # Over template source, an id in two branches of one {% if %} renders once.
+            together = [n for n in nodes if any(n.renders_beside(o) for o in nodes if o is not n)]
+            if len(together) > 1 and JINJA not in id_:
+                tags = ", ".join(n.tag for n in together)
+                self.add("error", "duplicate-id", together[1], f'id="{id_}" appears {len(together)} times ({tags}); selectors and hx-indicator find only the first.')
         return self.findings
 
     # rules --------------------------------------------------------------
@@ -498,8 +551,15 @@ _JINJA_TAG = re.compile(r"\{%.*?%\}|\{#.*?#\}", re.S)
 def lint_source(text: str, file: str | None = None, extensions: Iterable[str] = ()) -> list[Finding]:
     """Lint template source without rendering. Values that contain Jinja are not parsed."""
     text = _JINJA_EXPR.sub(JINJA, text)
-    text = _JINJA_TAG.sub(lambda m: " " * m.group(0).count("\n") if False else "\n" * m.group(0).count("\n"), text)
+    text = _JINJA_TAG.sub(_strip_tag, text)
     return lint_html(text, extensions=extensions, is_document=False, file=file, source_mode=True)
+
+
+def _strip_tag(m: re.Match) -> str:
+    """A ``{% %}`` tag or ``{# #}`` comment as its newlines, after the branch marker if it is a branch tag."""
+    tag = m.group(0)
+    marker = branch_marker(tag[2:-2]) if tag.startswith("{%") else None
+    return (marker or "") + "\n" * tag.count("\n")
 
 
 def lint_script(text: str, file: str | None = None) -> list[Finding]:

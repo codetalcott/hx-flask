@@ -4,6 +4,18 @@
 
 ### Fixed
 
+- `hx map` no longer checks what a handler answers a control with
+  `hx-swap="none"` (its own or an ancestor's `hx-swap:inherited`): the answer is
+  put nowhere, so a JSON reply, a page or a handler with no hx verb cannot land
+  wrong. A save-on-change field posting to a JSON endpoint was an error.
+- Over template source, `duplicate-id` counts an id written in two branches of
+  one `{% if %}` / `{% elif %}` / `{% else %}`, or of a `{% for %}` and its
+  `{% else %}`, once: only one renders. It was an error. An id built from
+  branches (`id="{% if a %}x{% else %}y{% endif %}"`) now reads as computed, as
+  one built with `{{ }}` does.
+- The map's and the lint's output show a value built in the template as
+  `{{…}}` (and a branch tag as `{%…%}`), not the internal `__JINJA__`.
+
 - Four of `hx_vocab.HTMX2_EVENT_NAMES`' renames were htmx 4.0.0's, which htmx
   4.0.1 corrected in its upgrade guide, its `upgrade-check` and htmx-2-compat:
   - `htmx:afterOnLoad` is `htmx:after:request` (was `htmx:after:init`);

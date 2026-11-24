@@ -168,8 +168,10 @@ Alpine's `@click`), hyperscript's `_`, Alpine's `x-on:htmx:...`
 (`htmx2-detail-xhr`). A directory is searched for `*.html` and `*.js`, skipping
 htmx's own files (`htmx-4.0.0.js`, `hx-sse.js`, `htmx-2-compat.js`).
 Over template source, `duplicate-id` compares literal ids only: an id built with
-`{{ }}` is unknown until it renders. The lint does not follow `{% if %}`, so an
-id written in two exclusive branches is reported though only one renders.
+`{{ }}`, or from `{% if %}` branches, is unknown until it renders. An id written
+in two branches of one `{% if %}` / `{% elif %}` / `{% else %}` (or a `{% for %}`
+and its `{% else %}`) counts once, since only one renders; one inside a loop body
+still counts once, though the loop may render it many times.
 
 The map's controls are `hx-*` attributes, boosted links and forms, and
 `htmx.ajax(verb, url, options)` calls with a literal verb, in a `<script>` or an
@@ -192,7 +194,9 @@ hx verb, or that returns JSON on some branch and has no verb; a handler that cal
 DELETE control without `hx-include="closest form"` whose handler reads request
 values; a `fetch()` to a handler that calls `hx.render` or `hx.invalid`, which
 answers fetch with the page; and an event announced or listened for on only one
-side. A listener is an `hx-trigger`, an `hx-on`, or a hyperscript `on <name>` in
+side. A control with `hx-swap="none"` (its own, or an ancestor's
+`hx-swap:inherited`) is not checked for what its handler answers, since the
+answer is put nowhere: JSON, a page or no verb at all. A listener is an `hx-trigger`, an `hx-on`, or a hyperscript `on <name>` in
 `_`, `script` or `data-script` or in an inline `<script type="text/hyperscript">`,
 behaviors included. A listener for a browser event, for hyperscript's
 `on intersection`, `on mutation` or `on resize` (observers), or for a name with a
