@@ -47,7 +47,7 @@ from dataclasses import dataclass, field
 from urllib.parse import urlsplit
 
 import hx_vocab as vocab
-from hxlint import HYPERSCRIPT_ATTRS, HYPERSCRIPT_TYPE, JINJA, Node, hcon_parse, parse, parse_swap_spec, parse_trigger_specs, shown
+from hxlint import _BRANCH_MARK, HYPERSCRIPT_ATTRS, HYPERSCRIPT_TYPE, JINJA, Node, hcon_parse, hcon_split, parse, parse_swap_spec, parse_trigger_specs, shown
 
 __all__ = [
     "URLFOR",
@@ -465,12 +465,9 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
         out.append(Listener(file, node.line if line is None else line, node.describe(), name, browser=browser))
 
     trigger = node.own("hx-trigger")
-    if trigger and JINJA not in trigger:
-        try:
-            for spec in parse_trigger_specs(trigger):
-                add(spec["name"].split("[", 1)[0])
-        except ValueError:
-            pass
+    if trigger:
+        for name in _literal_trigger_names(trigger):
+            add(name.split("[", 1)[0])
     for attr, value in node.attrs.items():
         if attr == "hx-on" and value:
             for part in re.split(r";(?=[^;]*->)", value):
@@ -491,6 +488,25 @@ def _listeners_for(file: str, node: Node) -> list[Listener]:
                 seen.add((name, line))
                 add(name, line, DOM_EVENTS | HYPERSCRIPT_OBSERVED)
     return out
+
+
+def _literal_trigger_names(value: str) -> list[str]:
+    """
+    The event names an ``hx-trigger`` writes literally, spec by spec: in ``load, saved from:body{% if x %},
+    {{ more }}{% endif %}`` that is load and saved. A spec whose name is an expression is built at render time,
+    and one a branch tag divides into alternatives (``{% if a %}saved{% else %}closed{% endif %}``) is not
+    read; a name with a computed modifier (``saved from:{{ sel }}``) is.
+    """
+    names = []
+    for piece in hcon_split(value):
+        parts = [p for p in _BRANCH_MARK.sub("\0", piece).split("\0") if p.strip()]
+        if len(parts) != 1:
+            continue
+        try:
+            names += [spec["name"] for spec in parse_trigger_specs(parts[0]) if JINJA not in spec["name"]]
+        except ValueError:  # an unterminated filter: htmx would not listen either
+            continue
+    return names
 
 
 # ------------------------------------------------------------------- handlers

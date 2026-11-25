@@ -18,6 +18,10 @@
 
 ### Fixed
 
+- `hx map` reads an `hx-trigger` spec by spec, so the events written literally beside a template tag are
+  listeners: `load, saved from:body{% if x %}, {{ more }}{% endif %}` listens for `saved`. Any expression in
+  the value used to drop all of it, and an event announced for that listener was warned about as heard by
+  nothing. A spec whose name is built in the template, or which a branch tag divides, is still not read.
 - The lint reads `hx-swap-oob` as htmx 4.0.2 does: `/^(\S+):(.+)/` splits off the
   target selector, and only what is left is a swap spec. It read the whole value
   as one, so every `style:selector` value was an `unknown-swap-modifier` Error,

@@ -229,7 +229,9 @@ behaviors included. A listener for a browser event, for hyperscript's
 `on intersection`, `on mutation` or `on resize` (observers), or for a name with a
 colon (`htmx:*`, an extension's `sse:message`, a namespaced `contact:saved`) is
 never asked to be announced, and still pairs with a `.trigger()` of that name; a
-name built in the template (`on {{ name }}`) is not read as a listener. An event a
+name built in the template (`on {{ name }}`) is not read as a listener. An `hx-trigger` is read spec by
+spec, so `load, saved from:body{% if x %}, {{ more }}{% endif %}` listens for load and saved; a spec whose
+name is built in the template, or which a branch tag divides into alternatives, is not read. An event a
 script names (a quoted name in a `<script>` or `hx-on`, such as
 `addEventListener('x', ...)`, or a hyperscript `send x` / `trigger x`, even
 inside a quoted string) counts for both sides, since the scan cannot tell
