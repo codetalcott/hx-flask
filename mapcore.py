@@ -598,6 +598,11 @@ class HandlerVisitor(ast.NodeVisitor):
                 self._templates(verb, node)
             elif name in self.flash_names or name.rsplit(".", 1)[-1] in self.flash_names:
                 self.h.flashes = True
+        for kw in node.keywords:  # HttpResponse(status=204, headers={"HX-Trigger": json.dumps({...})})
+            if kw.arg == "headers" and isinstance(kw.value, ast.Dict):
+                for key, value in zip(kw.value.keys, kw.value.values):
+                    if isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value.lower() == "hx-trigger":
+                        self.h.announces |= _trigger_header_events(value)
         if isinstance(node.func, ast.Attribute):
             if node.func.attr == "trigger" and node.args and isinstance(node.args[0], ast.Constant):
                 self.h.announces.add(str(node.args[0].value))
@@ -609,7 +614,8 @@ class HandlerVisitor(ast.NodeVisitor):
 
     def visit_Assign(self, node: ast.Assign):
         # response["HX-Trigger"] = "a, b" or response.headers["HX-Trigger"] = json.dumps({"a": ...}): the header
-        # .trigger() writes, written by hand. The events are read as htmx 4.0.2 reads the header (#me).
+        # .trigger() writes, written by hand (visit_Call reads headers={...}). The events are read as htmx 4.0.2
+        # reads the header (#me).
         for target in node.targets:
             key = target.slice if isinstance(target, ast.Subscript) else None
             if isinstance(key, ast.Constant) and isinstance(key.value, str) and key.value.lower() == "hx-trigger":

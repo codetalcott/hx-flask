@@ -32,9 +32,11 @@
   templates, so a fragment without the layout's script agrees. A misspelling no
   script names is still an Error. `hxlint.script_attributes()` returns the names.
 - `hx map` reads an `HX-Trigger` header a handler writes by hand
-  (`response.headers["HX-Trigger"] = "a, b"`, a JSON object's keys,
-  `json.dumps({...})`'s literal keys, an f-string's literal names) as announcing
-  those events, as `.trigger()` does, so a listener for one is not warned about.
+  (`response.headers["HX-Trigger"] = "a, b"`, or a `headers={"HX-Trigger": ...}`
+  dict passed to any call, as Django's `HttpResponse(headers=...)` takes it; a
+  JSON object's keys, `json.dumps({...})`'s literal keys, an f-string's literal
+  names) as announcing those events, as `.trigger()` does, so a listener for one
+  is not warned about.
 - `hx map` reads a plain link or form as boosted only where an `hx-boost`
   reaches it: its own, an ancestor's `hx-boost:inherited` in the same file, or
   one on `<body>` or `<html>`, which reaches every template. Any
