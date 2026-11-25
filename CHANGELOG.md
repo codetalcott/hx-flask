@@ -18,6 +18,23 @@
 
 ### Fixed
 
+- The lint reads `hx-swap-oob` as htmx 4.0.2 does: `/^(\S+):(.+)/` splits off the
+  target selector, and only what is left is a swap spec. It read the whole value
+  as one, so every `style:selector` value was an `unknown-swap-modifier` Error,
+  `outerHTML:#count` included, and a selector with a space
+  (`afterbegin:#list [data-col='1']`) was two. Found on NAV, a public Django
+  project, by dj-hx, which vendors the lint.
+- `unknown-attribute` skips an `hx-*` attribute a script names
+  (`hasAttribute("hx-noprog")`, `"[hx-noprog]"`, `data-` dropped): the project's
+  own, which htmx ignores and the script reads. A script on the same page counts,
+  and so does one anywhere `flask hx lint` reads (an inline `<script>` in a
+  template, a `.js` file) or, for the rendered lint, in any of the app's
+  templates, so a fragment without the layout's script agrees. A misspelling no
+  script names is still an Error. `hxlint.script_attributes()` returns the names.
+- `hx map` reads an `HX-Trigger` header a handler writes by hand
+  (`response.headers["HX-Trigger"] = "a, b"`, a JSON object's keys,
+  `json.dumps({...})`'s literal keys, an f-string's literal names) as announcing
+  those events, as `.trigger()` does, so a listener for one is not warned about.
 - `hx map` reads a plain link or form as boosted only where an `hx-boost`
   reaches it: its own, an ancestor's `hx-boost:inherited` in the same file, or
   one on `<body>` or `<html>`, which reaches every template. Any

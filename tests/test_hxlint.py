@@ -3,7 +3,7 @@
 import pytest
 
 import hx_vocab as V
-from hxlint import hcon_parse, hcon_split, lint_html, lint_paths, lint_script, lint_source, parse_swap_spec, parse_trigger_specs
+from hxlint import hcon_parse, hcon_split, lint_html, lint_paths, lint_script, lint_source, parse_swap_spec, parse_trigger_specs, script_attributes
 from tests.conftest import FULL, PARTIAL, ROOT
 
 
@@ -286,6 +286,44 @@ def test_oob_in_a_template_is_noted_not_failed():
     f = lint_html('<div id="count" hx-swap-oob="true">3</div><div hx-select-oob="#flash"></div>')
     assert rules(f) == ["oob-in-template"] and {x.severity for x in f} == {"info"} and len(f) == 2
     assert ".partial()" in f[0].message
+
+
+@pytest.mark.parametrize(
+    "value", ["afterbegin:#navlets-htmx [data-col='1']", "beforeend:#list > li", "outerHTML:#count", "innerHTML", "true"]
+)
+def test_an_oob_value_is_read_as_htmx_reads_it(value):
+    # htmx 4.0.2 splits the target off at /^(\S+):(.+)/, so it may hold spaces (NAV's dashboard columns).
+    assert rules(lint_html(f'<div id="count" hx-swap-oob="{value}">3</div>')) == ["oob-in-template"]
+
+
+def test_an_oob_swap_spec_is_still_checked():
+    assert "unknown-swap-style" in rules(lint_html('<div id="c" hx-swap-oob="sideways:#count">3</div>'))
+    assert "unknown-swap-modifier" in rules(lint_html('<div id="c" hx-swap-oob="innerHTML swapp:1s">3</div>'))
+
+
+def test_an_attribute_a_script_on_the_page_names_is_the_projects_own():
+    page = '<html><body><a hx-get="/x" hx-noprog>x</a><script>const shows = (e) => !e.target.hasAttribute("hx-noprog");</script></body></html>'
+    assert rules(lint_html(page)) == []
+    assert rules(lint_html('<a hx-get="/x" hx-noprog>x</a>'), "error") == ["unknown-attribute"]  # no script names it
+
+
+def test_an_attribute_a_script_elsewhere_names_is_passed_in():
+    assert rules(lint_source('<a hx-get="/x" data-hx-noprog>x</a>', script_attributes={"hx-noprog"})) == []
+    assert rules(lint_source('<a hx-get="/x" hx-noprgo>x</a>', script_attributes={"hx-noprog"}), "error") == ["unknown-attribute"]
+    # data- is dropped as the lint drops it from an attribute; an element's own attribute is not a script's
+    assert script_attributes('<script>document.querySelectorAll("[data-hx-noprog]")</script><p hx-other>', html=True) == {"hx-noprog"}
+    assert script_attributes("el.hasAttribute('hx-noprog') // and hx-busy") == {"hx-noprog", "hx-busy"}
+
+
+def test_lint_paths_reads_the_attributes_every_script_names(tmp_path, capsys):
+    (tmp_path / "layout.html").write_text('<html><body><script>!e.target.hasAttribute("hx-noprog")</script></body></html>')
+    (tmp_path / "button.html").write_text('<a hx-get="/x" hx-noprog>x</a>')
+    (tmp_path / "spinner.html").write_text('<div hx-busy>x</div>')
+    (tmp_path / "app.js").write_text('document.body.addEventListener("click", e => e.target.closest("[hx-busy]"))')
+    (tmp_path / "typo.html").write_text('<a hx-get="/x" hx-noprgo>x</a>')
+    assert lint_paths([str(tmp_path)]) == 1
+    out = capsys.readouterr().out
+    assert out.count("unknown-attribute") == 1 and "hx-noprgo" in out
 
 
 def test_extension_attributes_need_their_script_when_the_page_is_known():

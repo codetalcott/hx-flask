@@ -504,12 +504,35 @@ class HX:
             )
             return
         body = response.get_data(as_text=True)
-        findings = hxlint.lint_html(body)
+        findings = hxlint.lint_html(body, script_attributes=self._script_attributes(hxlint))
         errors = [f for f in findings if f.severity == "error"]
         for f in (f for f in findings if f.severity == "warning"):
             current_app.logger.warning("hx lint: %s", f)
         if errors:
             _loud(HxLintError, "rendered HTML failed the htmx 4 lint:\n  " + "\n  ".join(str(f) for f in errors))
+
+    @staticmethod
+    def _script_attributes(hxlint) -> set[str]:
+        """
+        The ``hx-*`` names the inline scripts of the app's templates mention, so a fragment that carries the
+        project's own attribute without the layout's script that reads it is not reported. Read once per app,
+        so a template edited while the server runs counts from the next start.
+        """
+        cache = current_app.extensions
+        if "hx.script_attributes" not in cache:
+            env, names = current_app.jinja_env, set()
+            try:
+                templates = env.loader.list_templates() if env.loader else []
+            except TypeError:  # a loader that cannot list its templates (FunctionLoader)
+                templates = []
+            for name in templates:
+                if name.endswith((".html", ".jinja", ".jinja2", ".j2")):
+                    try:
+                        names |= hxlint.script_attributes(env.loader.get_source(env, name)[0], html=True)
+                    except Exception:  # TemplateNotFound, an unreadable file: it names nothing
+                        continue
+            cache["hx.script_attributes"] = names
+        return cache["hx.script_attributes"]
 
 
 # ---------------------------------------------------------------------- the CLI
