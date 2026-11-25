@@ -220,8 +220,8 @@ DELETE control without `hx-include="closest form"` whose handler reads request
 values; a `fetch()` to a handler that calls `hx.render` or `hx.invalid`, which
 answers fetch with the page; and an event announced or listened for on only one
 side; a handler announces an event with `.trigger()` or with an `HX-Trigger` header
-it writes itself (`response.headers["HX-Trigger"] = "a, b"`, a JSON object, or
-`json.dumps({...})`, read for their literal names as htmx 4.0.2 reads the header). A control with `hx-swap="none"` (its own, or an ancestor's
+it writes itself (`response.headers["HX-Trigger"] = "a, b"`, or a `headers={"HX-Trigger": ...}` dict passed
+to any call; a JSON object, or `json.dumps({...})`, read for their literal names as htmx 4.0.2 reads the header). A control with `hx-swap="none"` (its own, or an ancestor's
 `hx-swap:inherited`) is not checked for what its handler answers, since the
 answer is put nowhere: JSON, a page or no verb at all. A listener is an `hx-trigger`, an `hx-on`, or a hyperscript `on <name>` in
 `_`, `script` or `data-script` or in an inline `<script type="text/hyperscript">`,

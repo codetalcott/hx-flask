@@ -648,6 +648,10 @@ end
         ('response["HX-Trigger"] = name', set()),  # computed: names nothing the scan can read
         ('response["HX-Trigger"] = "{not json"', set()),  # htmx's parse throws on it too
         ('response["HX-Retarget"] = "saved"', set()),
+        # Django's HttpResponse(headers=...), as hypha's views write it 21 times
+        ('response = HttpResponse(status=204, headers={"HX-Trigger": json.dumps({"leadUpdated": None, "showMessage": m})})', {"leadUpdated", "showMessage"}),
+        ('response = Response(headers={"Content-Type": "text/html", "hx-trigger": "saved"})', {"saved"}),
+        ('response = HttpResponse(headers=extra)', set()),
     ],
 )
 def test_a_trigger_header_written_by_hand_announces_its_events(line, events):
