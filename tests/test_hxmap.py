@@ -634,7 +634,47 @@ end
 </script>"""
     m = _listener_map(make_app, body)
     assert [(li.event, li.line) for li in m.listeners] == [("archived", 3)]
-    assert m.warnings == ["event 'archived' is listened for (page.html:3) but no handler announces it with .trigger() and no script names it."]
+    assert m.warnings == ["event 'archived' is listened for (page.html:3) but no handler announces it with .trigger() or an HX-Trigger header it sets, and no script names it."]
+
+
+@pytest.mark.parametrize(
+    "line, events",
+    [
+        ('response["HX-Trigger"] = "saved"', {"saved"}),  # Django's HttpResponse
+        ('response.headers["HX-Trigger"] = "saved, archived"', {"saved", "archived"}),
+        ("""response["HX-Trigger"] = '{"saved": true, "archived": {"target": "#list"}}'""", {"saved", "archived"}),
+        ('response["hx-trigger"] = json.dumps({"saved": 1})', {"saved"}),
+        ('response["HX-Trigger"] = f"{earlier}, saved"', {"saved"}),
+        ('response["HX-Trigger"] = name', set()),  # computed: names nothing the scan can read
+        ('response["HX-Trigger"] = "{not json"', set()),  # htmx's parse throws on it too
+        ('response["HX-Retarget"] = "saved"', set()),
+    ],
+)
+def test_a_trigger_header_written_by_hand_announces_its_events(line, events):
+    import ast
+    import textwrap
+
+    h = mapcore.Handler("save")
+    mapcore.scan_function(h, ast.parse(textwrap.dedent(f"""
+        def save(request):
+            response = render(request, "page.html")
+            {line}
+            return response
+    """)), {})
+    assert h.announces == events
+
+
+def _sets_saved_by_hand():
+    from hx import hx
+
+    response = hx.page("page.html")
+    response.headers["HX-Trigger"] = "saved"
+    return response
+
+
+def test_a_listener_pairs_with_a_trigger_header_written_by_hand(make_app):
+    m = _listener_map(make_app, """<div hx-get="/page" hx-target="body" hx-trigger="saved from:body">x</div>""", handler=_sets_saved_by_hand)
+    assert m.warnings == [] and m.errors == []
 
 
 def test_a_hyperscript_script_send_names_the_event_it_announces(make_app):

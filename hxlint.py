@@ -34,7 +34,7 @@ from typing import Iterable
 
 import hx_vocab as V
 
-__all__ = ["Finding", "lint_html", "lint_source", "lint_script", "lint_paths", "hcon_parse", "hcon_split", "parse_trigger_specs", "parse_swap_spec", "parse", "Node", "shown", "branch_marker"]
+__all__ = ["Finding", "lint_html", "lint_source", "lint_script", "lint_paths", "script_attributes", "hcon_parse", "hcon_split", "parse_trigger_specs", "parse_swap_spec", "parse", "Node", "shown", "branch_marker"]
 
 VOID = {"area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "source", "track", "wbr"}
 JINJA = "__JINJA__"
@@ -280,6 +280,22 @@ def parse(html: str) -> tuple[Node, list[str]]:
     return b.root, b.scripts
 
 
+# An hx-* name in a script (hasAttribute("hx-noprog"), "[data-hx-noprog]", a comment): data- is dropped, as the
+# lint drops it from an attribute.
+_SCRIPT_ATTRIBUTE = re.compile(r"(?<![\w-])(?:data-)?(hx-[A-Za-z0-9][\w-]*)")
+_INLINE_SCRIPT = re.compile(r"<script\b[^>]*>(.*?)</script>", re.S | re.I)
+
+
+def script_attributes(text: str, html: bool = False) -> set[str]:
+    """
+    The ``hx-*`` names a script mentions; with ``html=True``, the names the inline ``<script>``
+    elements of a page or template mention. An unknown ``hx-*`` attribute a script names is the
+    project's own, which htmx ignores and the script reads, so ``unknown-attribute`` skips it.
+    """
+    blocks = _INLINE_SCRIPT.findall(text) if html else [text]
+    return {name for block in blocks for name in _SCRIPT_ATTRIBUTE.findall(block)}
+
+
 # ------------------------------------------------------------------ findings
 
 
@@ -313,7 +329,7 @@ def _suggest(name: str, options: Iterable[str]) -> str:
 
 
 class _Linter:
-    def __init__(self, root: Node, scripts: list[str], extensions: Iterable[str], is_document: bool, source_mode: bool, file: str | None):
+    def __init__(self, root: Node, scripts: list[str], extensions: Iterable[str], is_document: bool, source_mode: bool, file: str | None, script_attributes: Iterable[str] = ()):
         self.root = root
         self.is_document = is_document
         self.source_mode = source_mode
@@ -329,6 +345,11 @@ class _Linter:
         # No information at all (a fragment, no config): allow every known extension.
         self.loaded: set[str] | None = loaded if (loaded or scripts) else None
         self.nodes = list(root.descendants())
+        # hx-* names a script reads: the caller's (the other templates, the .js files) and this page's own.
+        self.script_attributes = set(script_attributes)
+        for n in self.nodes:
+            if n.tag == "script" and n.text:
+                self.script_attributes.update(_SCRIPT_ATTRIBUTE.findall(n.text))
         self.ids: dict[str, list[Node]] = {}
         for n in self.nodes:
             node_id = n.attrs.get("id")
@@ -357,8 +378,8 @@ class _Linter:
                     continue
                 if stem == "hx-swap":
                     self.swap_value(node, value)
-                elif stem == "hx-swap-oob" and value not in ("true", "false"):
-                    self.swap_value(node, value)
+                elif stem == "hx-swap-oob":
+                    self.oob_value(node, value)
                 elif stem == "hx-trigger":
                     self.trigger_value(node, value)
                 elif stem == "hx-on" or stem.startswith("hx-on:"):
@@ -398,13 +419,26 @@ class _Linter:
             if stem in attrs:
                 self.extension_loaded(node, stem, ext)
                 return
+        if stem in self.script_attributes:
+            return  # the project's own attribute: htmx ignores it and a script reads it
         everything = list(V.CORE_ATTRIBUTES) + [a for attrs in V.EXTENSION_ATTRIBUTES.values() for a in attrs]
-        self.add("error", "unknown-attribute", node, f"{name} is not an htmx 4 attribute{_suggest(stem, everything)}; htmx ignores it silently.")
+        self.add("error", "unknown-attribute", node, f"{name} is not an htmx 4 attribute{_suggest(stem, everything)}; htmx ignores it silently. (A project's own attribute is not reported where a script on the page or in the templates names it.)")
 
     def extension_loaded(self, node: Node, attr: str, ext: str) -> None:
         if self.loaded is None or ext in self.loaded:
             return
         self.add("warning", "extension-not-loaded", node, f"{attr} needs the {ext} extension, and no script for it is on this page.")
+
+    def oob_value(self, node: Node, value: str) -> None:
+        """
+        ``hx-swap-oob`` as htmx 4.0.2 reads it (``#Oe``): ``/^(\\S+):(.+)/`` splits off a target selector,
+        which may hold spaces (``afterbegin:#list [data-col='1']``); what is left is a swap spec, and
+        ``true`` or nothing is outerHTML.
+        """
+        m = re.match(r"(\S+):(.+)", value)
+        spec = m.group(1) if m else value
+        if spec not in ("", "true", "false"):
+            self.swap_value(node, spec)
 
     def swap_value(self, node: Node, value: str) -> None:
         spec = parse_swap_spec(value)
@@ -544,22 +578,23 @@ class _Linter:
 # --------------------------------------------------------------------- entry
 
 
-def lint_html(html: str, *, extensions: Iterable[str] = (), is_document: bool | None = None, file: str | None = None, source_mode: bool = False) -> list[Finding]:
+def lint_html(html: str, *, extensions: Iterable[str] = (), is_document: bool | None = None, file: str | None = None, source_mode: bool = False, script_attributes: Iterable[str] = ()) -> list[Finding]:
+    """``script_attributes``: the ``hx-*`` names scripts elsewhere read (``script_attributes()``), beside this page's own."""
     root, scripts = parse(html)
     if is_document is None:
         is_document = any(n.tag in ("html", "body") for n in root.descendants())
-    return _Linter(root, scripts, extensions, is_document, source_mode, file).run()
+    return _Linter(root, scripts, extensions, is_document, source_mode, file, script_attributes).run()
 
 
 _JINJA_EXPR = re.compile(r"\{\{.*?\}\}", re.S)
 _JINJA_TAG = re.compile(r"\{%.*?%\}|\{#.*?#\}", re.S)
 
 
-def lint_source(text: str, file: str | None = None, extensions: Iterable[str] = ()) -> list[Finding]:
+def lint_source(text: str, file: str | None = None, extensions: Iterable[str] = (), script_attributes: Iterable[str] = ()) -> list[Finding]:
     """Lint template source without rendering. Values that contain Jinja are not parsed."""
     text = _JINJA_EXPR.sub(JINJA, text)
     text = _JINJA_TAG.sub(_strip_tag, text)
-    return lint_html(text, extensions=extensions, is_document=False, file=file, source_mode=True)
+    return lint_html(text, extensions=extensions, is_document=False, file=file, source_mode=True, script_attributes=script_attributes)
 
 
 def _strip_tag(m: re.Match) -> str:
@@ -591,10 +626,13 @@ def lint_paths(paths: Iterable[str], extensions: Iterable[str] = (), out=None) -
             files += sorted(path.rglob("*.html")) + sorted(f for f in path.rglob("*.js") if not _htmx_own(f))
         else:
             files.append(path)
+    texts = {f: f.read_text() for f in files}
+    # An hx-* name any of these scripts reads is the project's own attribute, in every template.
+    named = set().union(*(script_attributes(t, html=f.suffix not in (".js", ".mjs")) for f, t in texts.items()))
     errors = 0
     for f in files:
-        lint = lint_script if f.suffix in (".js", ".mjs") else lambda text, file: lint_source(text, file=file, extensions=extensions)
-        for finding in lint(f.read_text(), file=str(f)):
+        lint = lint_script if f.suffix in (".js", ".mjs") else lambda text, file: lint_source(text, file=file, extensions=extensions, script_attributes=named)
+        for finding in lint(texts[f], file=str(f)):
             print(finding, file=out)
             errors += finding.severity == "error"
     print(f"hx lint: {len(files)} files, {errors} errors", file=out)

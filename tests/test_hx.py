@@ -482,6 +482,29 @@ def test_a_response_built_without_a_verb_to_an_htmx_2_request_is_a_protocol_erro
     assert sum("no HX-Request-Type" in m for m in caplog.messages) == 1
 
 
+def test_the_rendered_lint_takes_an_attribute_any_template_script_names_as_the_projects_own(make_app):
+    from hx import HxLintError
+
+    app = make_app({
+        "base.html": '<html><body><script>!e.target.hasAttribute("hx-noprog")</script></body></html>',
+        "button.html": '<a hx-get="/x" hx-noprog>x</a>',
+        "typo.html": '<a hx-get="/x" hx-noprgo>x</a>',
+    })
+
+    @app.get("/button")
+    def button():
+        return hx.fragment("button.html")
+
+    @app.get("/typo")
+    def typo():
+        return hx.fragment("typo.html")
+
+    c = app.test_client()
+    assert c.get("/button", headers=PARTIAL).status_code == 200  # the fragment, without base.html's script
+    with pytest.raises(HxLintError, match="hx-noprgo is not an htmx 4 attribute"):
+        c.get("/typo", headers=PARTIAL)
+
+
 def test_lint_that_cannot_import_hxlint_is_loud(make_app, monkeypatch, caplog):
     from hx import HxLintError
 
