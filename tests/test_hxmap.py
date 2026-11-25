@@ -681,6 +681,33 @@ def test_a_listener_pairs_with_a_trigger_header_written_by_hand(make_app):
     assert m.warnings == [] and m.errors == []
 
 
+@pytest.mark.parametrize(
+    "trigger, events",
+    [
+        ("load, saved from:body{% if more %}, {{ more }}{% endif %}", ["load", "saved"]),  # hypha's activity feed
+        ("saved from:{{ selector }}", ["saved"]),  # a literal name, a computed modifier
+        ("{{ event }} from:body", []),  # a name built in the template
+    ],
+)
+def test_a_listener_is_read_from_the_literal_specs_beside_a_template_tag(make_app, trigger, events):
+    m = _listener_map(make_app, f'<div hx-get="/page" hx-target="body" hx-trigger="{trigger}">x</div>')
+    assert [li.event for li in m.listeners] == events
+
+
+def test_a_trigger_a_branch_tag_divides_is_not_read():
+    # dj-hx's stripper marks {% if %} / {% else %} / {% endif %}; hx-flask's map drops Jinja's tags
+    from hxlint import JINJA, branch_marker, parse
+
+    def events(value):
+        root, _ = parse(f'<div hx-trigger="{value}"></div>')
+        return [li.event for n in root.descendants() for li in mapcore._listeners_for("p.html", n)]
+
+    bordered = f"load, commentAdded from:body{branch_marker('if x')}, {JINJA}{branch_marker('endif')}"
+    assert events(bordered) == ["load", "commentAdded"]
+    divided = f"{branch_marker('if a')}saved{branch_marker('else')}closed{branch_marker('endif')} from:body"
+    assert events(divided) == []
+
+
 def test_a_hyperscript_script_send_names_the_event_it_announces(make_app):
     body = (
         """<script type="text/hyperscript">on keyup[key is 'Escape'] from window send closeAll to body end</script>"""
