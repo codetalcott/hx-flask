@@ -2,7 +2,8 @@
 The scorecard: the book's contact.app, unchanged, loaded with htmx 4.
 
 Templates and handlers are copied from bigskysoftware/contact-app at bfddbfc
-(BSD 2-Clause), trimmed to the lines that break; the model is left out. The
+(which has no licence file; see THIRD-PARTY.md), trimmed to the lines that
+break; the model is left out. The
 chapter 9 additions (the Alpine toolbar, the RSJS menu) are from its master,
 6b9449c; the chapter 8 examples are figures in the book, which the app never
 included, from the 2nd-edition branch of bigskysoftware/hypermedia-systems-book

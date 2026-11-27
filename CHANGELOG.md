@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- `THIRD-PARTY.md` named the wrong licences, and now names what each source
+  repository says, as checked on 2026-11-27:
+  - missing.css is BSD 2-Clause, by Big Sky Software. It was given as MIT, by
+    Ollie Williams. Its notice is now included, and so is SVG Loaders' MIT
+    notice.
+  - The book's `bigskysoftware/contact-app` has no licence file. It was given
+    as BSD 2-Clause, and nothing supports that. The same claim is withdrawn
+    from `tests/test_book_on_htmx4.py`.
+  - The chapter 8 figures come from the book's text, which is CC BY-NC-SA 4.0.
 - Four of `hx_vocab.HTMX2_EVENT_NAMES`' renames were htmx 4.0.0's, which htmx
   4.0.1 corrected in its upgrade guide, its `upgrade-check` and htmx-2-compat:
   - `htmx:afterOnLoad` is `htmx:after:request` (was `htmx:after:init`);

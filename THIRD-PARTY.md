@@ -4,14 +4,81 @@
 close to the book's `ch10-full` snapshot so the two can be compared line for
 line.
 
-- `static/js/htmx-4.0.0.js` — htmx, by Big Sky Software. 0BSD.
-- `static/missing.css` — missing.css, by Ollie Williams and contributors. MIT.
-- `static/img/spinning-circles.svg` — from SVG Loaders, by Sam Herbert. MIT.
-- `contacts.json`, the routes and the templates, and the book excerpts in
-  `tests/test_book_on_htmx4.py` — from *Hypermedia Systems* (Gross, Stepinski,
-  Akşimşek), whose sample application is published under the BSD 2-Clause
-  license.
+- `static/js/htmx-4.0.0.js` — htmx, by Big Sky Software. Zero-Clause BSD.
+- `static/missing.css` — missing.css
+  (<https://github.com/bigskysoftware/missing>), by Big Sky Software. BSD
+  2-Clause; its notice is below, as that licence requires.
+- `static/img/spinning-circles.svg` — from SVG Loaders
+  (<https://github.com/SamHerbert/SVG-Loaders>), by Sam Herbert. MIT; its
+  notice is below.
+- `contacts.json`, the routes and the templates, and the book's app as quoted
+  in `tests/test_book_on_htmx4.py` — from the book's sample application,
+  <https://github.com/bigskysoftware/contact-app> (Gross, Stepinski,
+  Akşimşek). **That repository has no licence file**: not at the commits this
+  port follows (`bfddbfc`, `6b9449c`), and no commit in its history adds one
+  (checked 2026-11-27). No licence is known for this material.
+- The chapter 8 examples in `tests/test_book_on_htmx4.py` — figures in the
+  book's text, from the `2nd-edition` branch of
+  <https://github.com/bigskysoftware/hypermedia-systems-book> at `8e04898`,
+  which is licensed Creative Commons Attribution-NonCommercial-ShareAlike 4.0.
 
 `hx_vocab.py` is generated from htmx's repository at the `v4.0.2` tag by
 `tools/gen_vocab.py`; the vocabulary is htmx's, the generator is this
 project's. dj-hx vendors `hxlint.py`, `hx_vocab.py` and `mapcore.py` from here.
+
+## Notices
+
+### missing.css
+
+```
+BSD 2-Clause License
+
+Copyright (c) 2022, Big Sky Software
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### SVG Loaders
+
+```
+The MIT License (MIT)
+
+Copyright (c) 2014 Sam Herbert
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
